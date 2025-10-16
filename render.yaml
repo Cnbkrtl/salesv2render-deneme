@@ -39,7 +39,6 @@ services:
     name: sales-analytics-frontend
     runtime: static
     env: static
-    region: frankfurt
     plan: free
     branch: main
     buildCommand: cd frontend && npm install && npm run build
