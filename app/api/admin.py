@@ -2,9 +2,10 @@
 Admin Endpoints - Database Yönetimi
 UYARI: Bu endpoint'ler production'da güvenli olmalı!
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from typing import Optional
 import logging
+import asyncio
 from datetime import datetime, timedelta
 
 from database import SessionLocal, SalesOrder, SalesOrderItem, Product
@@ -16,6 +17,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 settings = get_settings()
+
+# 🆕 Global status tracker
+resync_status = {
+    "running": False,
+    "progress": "",
+    "start_time": None,
+    "error": None
+}
 
 
 @router.post("/reset-database")
@@ -99,14 +108,18 @@ async def reset_database(
 
 @router.post("/full-resync")
 async def full_resync(
+    background_tasks: BackgroundTasks,
     start_date: str = Query(..., description="YYYY-MM-DD"),
     end_date: str = Query(..., description="YYYY-MM-DD"),
     clear_first: bool = Query(False, description="Önce o tarihleri temizle")
 ):
     """
-    Database'i temizleyip yeniden sync yapar
+    Database'i temizleyip yeniden sync yapar (BACKGROUND TASK)
     
-    ⚠️ ÖNEMLİ: Scheduler otomatik durdurulur ve sonra devam ettirilir
+    ⚠️ ÖNEMLİ: 
+    - İşlem background'da çalışır, health check'i bloklamaz
+    - Scheduler otomatik durdurulur ve sonra devam ettirilir
+    - Status: /api/admin/resync-status endpoint'inden takip edilir
     
     Adımlar:
     1. Scheduler PAUSE
@@ -115,80 +128,77 @@ async def full_resync(
     4. Orders sync
     5. Scheduler RESUME
     """
+    # Status kontrolü
+    if resync_status["running"]:
+        raise HTTPException(
+            status_code=409, 
+            detail="Resync zaten çalışıyor! Status endpoint'ini kontrol edin."
+        )
+    
+    # Background task başlat
+    background_tasks.add_task(
+        _run_full_resync_task,
+        start_date=start_date,
+        end_date=end_date,
+        clear_first=clear_first
+    )
+    
+    # Hemen cevap dön (non-blocking)
+    return {
+        "status": "started",
+        "message": "Full resync background'da başlatıldı",
+        "start_date": start_date,
+        "end_date": end_date,
+        "check_status": "/api/admin/resync-status"
+    }
+
+
+async def _run_full_resync_task(start_date: str, end_date: str, clear_first: bool):
+    """Background task: Full resync işlemini çalıştırır"""
+    resync_status["running"] = True
+    resync_status["start_time"] = datetime.now()
+    resync_status["error"] = None
+    resync_status["progress"] = "Başlatılıyor..."
+    
     try:
         logger.info(f"🔄 FULL RESYNC başlatılıyor: {start_date} - {end_date}")
+        resync_status["progress"] = "Scheduler duraklatılıyor..."
         
-        # 🆕 1. SCHEDULER'I DURDUR!
+        # 1. SCHEDULER'I DURDUR!
         from services.scheduled_sync import get_scheduler
         scheduler = get_scheduler()
         scheduler.pause()
         logger.warning("⏸️  SCHEDULER PAUSED - Full resync in progress")
         
         try:
-            db = SessionLocal()
-            
             # 2. Temizle (istenirse)
             if clear_first:
+                resync_status["progress"] = "Database temizleniyor..."
                 logger.info("🗑️  Mevcut veriler temizleniyor...")
                 
-                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-                end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-                
-                orders_to_delete = db.query(SalesOrder).filter(
-                    SalesOrder.order_date >= start_dt,
-                    SalesOrder.order_date < end_dt
-                ).all()
-                
-                order_ids = [o.id for o in orders_to_delete]
-                
-                items_deleted = db.query(SalesOrderItem).filter(
-                    SalesOrderItem.order_id.in_(order_ids)
-                ).delete(synchronize_session=False) if order_ids else 0
-                
-                orders_deleted = db.query(SalesOrder).filter(
-                    SalesOrder.order_date >= start_dt,
-                    SalesOrder.order_date < end_dt
-                ).delete(synchronize_session=False)
-                
-                db.commit()
-                logger.info(f"✅ Temizlendi: {orders_deleted} sipariş, {items_deleted} item")
+                # Async olarak çalıştır (thread pool'da)
+                await asyncio.to_thread(_clear_database, start_date, end_date)
             
-            db.close()
-            
-            # 3. Sentos client
-            sentos = SentosAPIClient(
-                api_url=settings.sentos_api_url,
-                api_key=settings.sentos_api_key,
-                api_secret=settings.sentos_api_secret
-            )
-            
-            fetcher = DataFetcherService(sentos_client=sentos)
-            
-            # 4. ÖNCE PRODUCTS SYNC (rate limit için önemli!)
-            # ⚠️ KÜÇÜK BATCH - Render timeout önlemek için
+            # 3. Products sync (async)
+            resync_status["progress"] = "Products sync yapılıyor..."
             logger.info("📦 Products sync başlatılıyor...")
-            db = SessionLocal()
-            try:
-                # Max 20 sayfa = 2000 ürün (timeout önlemek için)
-                product_count = fetcher.sync_products_from_sentos(db, max_pages=20)
-                logger.info(f"✅ Products sync tamamlandı: {product_count} ürün")
-            finally:
-                db.close()
             
-            # 5. ORDERS SYNC
+            product_count = await asyncio.to_thread(_sync_products)
+            logger.info(f"✅ Products sync tamamlandı: {product_count} ürün")
+            
+            # 4. Orders sync (async)
+            resync_status["progress"] = "Orders sync yapılıyor..."
             logger.info(f"📊 Orders sync başlatılıyor: {start_date} - {end_date}")
-            result = fetcher.fetch_and_store_orders(
-                start_date=start_date,
-                end_date=end_date,
-                marketplace=None,
-                clear_existing=False
+            
+            result = await asyncio.to_thread(
+                _sync_orders, 
+                start_date, 
+                end_date
             )
             
             logger.info(f"✅ FULL RESYNC tamamlandı!")
-            
-            return {
-                "status": "success",
-                "message": "Full resync tamamlandı",
+            resync_status["progress"] = "Tamamlandı! ✅"
+            resync_status["result"] = {
                 "products_synced": product_count,
                 "orders_synced": result.get("orders_fetched", 0),
                 "items_synced": result.get("items_stored", 0),
@@ -196,12 +206,12 @@ async def full_resync(
             }
         
         finally:
-            # 🆕 6. SCHEDULER'I YENİDEN BAŞLAT!
+            # 5. SCHEDULER'I YENİDEN BAŞLAT!
             scheduler.resume()
             logger.info("▶️  SCHEDULER RESUMED - Full resync completed")
-        
+    
     except Exception as e:
-        # 🆕 HATA DURUMUNDA DA SCHEDULER'I BAŞLAT!
+        # HATA DURUMUNDA DA SCHEDULER'I BAŞLAT!
         try:
             from services.scheduled_sync import get_scheduler
             scheduler = get_scheduler()
@@ -211,7 +221,86 @@ async def full_resync(
             pass
         
         logger.error(f"❌ Full resync hatası: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        resync_status["progress"] = f"HATA: {str(e)}"
+        resync_status["error"] = str(e)
+    
+    finally:
+        resync_status["running"] = False
+
+
+def _clear_database(start_date: str, end_date: str):
+    """Sync helper: Database temizle"""
+    db = SessionLocal()
+    try:
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+        
+        orders_to_delete = db.query(SalesOrder).filter(
+            SalesOrder.order_date >= start_dt,
+            SalesOrder.order_date < end_dt
+        ).all()
+        
+        order_ids = [o.id for o in orders_to_delete]
+        
+        items_deleted = db.query(SalesOrderItem).filter(
+            SalesOrderItem.order_id.in_(order_ids)
+        ).delete(synchronize_session=False) if order_ids else 0
+        
+        orders_deleted = db.query(SalesOrder).filter(
+            SalesOrder.order_date >= start_dt,
+            SalesOrder.order_date < end_dt
+        ).delete(synchronize_session=False)
+        
+        db.commit()
+        logger.info(f"✅ Temizlendi: {orders_deleted} sipariş, {items_deleted} item")
+    finally:
+        db.close()
+
+
+def _sync_products():
+    """Sync helper: Products sync"""
+    sentos = SentosAPIClient(
+        api_url=settings.sentos_api_url,
+        api_key=settings.sentos_api_key,
+        api_secret=settings.sentos_api_secret
+    )
+    fetcher = DataFetcherService(sentos_client=sentos)
+    
+    db = SessionLocal()
+    try:
+        # Max 20 sayfa = 2000 ürün (timeout önlemek için)
+        return fetcher.sync_products_from_sentos(db, max_pages=20)
+    finally:
+        db.close()
+
+
+def _sync_orders(start_date: str, end_date: str):
+    """Sync helper: Orders sync"""
+    sentos = SentosAPIClient(
+        api_url=settings.sentos_api_url,
+        api_key=settings.sentos_api_key,
+        api_secret=settings.sentos_api_secret
+    )
+    fetcher = DataFetcherService(sentos_client=sentos)
+    
+    return fetcher.fetch_and_store_orders(
+        start_date=start_date,
+        end_date=end_date,
+        marketplace=None,
+        clear_existing=False
+    )
+
+
+@router.get("/resync-status")
+async def get_resync_status():
+    """Full resync durumunu kontrol et"""
+    return {
+        "running": resync_status["running"],
+        "progress": resync_status["progress"],
+        "start_time": resync_status["start_time"].isoformat() if resync_status["start_time"] else None,
+        "error": resync_status["error"],
+        "result": resync_status.get("result")
+    }
 
 
 @router.get("/database-stats")
