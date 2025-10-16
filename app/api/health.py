@@ -19,28 +19,22 @@ router = APIRouter(prefix="/health", tags=["Health"])
 @router.get("", response_model=HealthResponse)
 async def health_check():
     """
-    Sistem sağlığını kontrol eder
+    Sistem sağlığını kontrol eder (Sentos API kontrolü olmadan)
     """
     settings = get_settings()
     
-    # Sentos API check
-    sentos = SentosAPIClient(
-        api_url=settings.sentos_api_url,
-        api_key=settings.sentos_api_key,
-        api_secret=settings.sentos_api_secret
-    )
-    sentos_status = sentos.test_connection()
-    sentos_connection = "connected" if sentos_status['success'] else "disconnected"
+    # Sentos API check - sadece config'in varlığını kontrol et, API çağrısı yapma
+    sentos_connection = "configured" if settings.sentos_api_url and settings.sentos_api_key else "not_configured"
     
     # Database check
     try:
         with engine.connect() as conn:
             conn.execute("SELECT 1")
         db_connection = "connected"
-    except:
+    except Exception as e:
         db_connection = "disconnected"
     
-    overall_status = "healthy" if (sentos_connection == "connected" and db_connection == "connected") else "degraded"
+    overall_status = "healthy" if db_connection == "connected" else "degraded"
     
     return HealthResponse(
         status=overall_status,
