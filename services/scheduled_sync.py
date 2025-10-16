@@ -6,9 +6,8 @@ import asyncio
 import logging
 from datetime import datetime, time, timedelta
 from typing import Optional
-import threading
 
-from services.data_fetcher import fetch_and_store_sales_data
+from services.data_fetcher import DataFetcherService
 from connectors.sentos_client import SentosAPIClient
 from app.core.config import get_settings
 
@@ -105,8 +104,8 @@ class ScheduledSyncService:
             logger.info("🔄 Günlük tam sync başlatılıyor...")
             start_time = datetime.now()
             
-            # 90 gün geriye git
-            start_date = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+            # 7 gün geriye git (daha hızlı sync için)
+            start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
             end_date = datetime.now().strftime('%Y-%m-%d')
             
             # Sentos client oluştur
@@ -116,21 +115,22 @@ class ScheduledSyncService:
                 api_secret=self.settings.sentos_api_secret
             )
             
-            # Veriyi çek ve kaydet
+            # Data fetcher service oluştur ve veriyi çek
+            fetcher = DataFetcherService(sentos_client=sentos)
             result = await asyncio.to_thread(
-                fetch_and_store_sales_data,
-                sentos_client=sentos,
+                fetcher.fetch_and_store_orders,
                 start_date=start_date,
                 end_date=end_date,
-                force_product_sync=True  # Ürünleri de güncelle
+                marketplace=None,
+                clear_existing=False
             )
             
             duration = (datetime.now() - start_time).total_seconds()
             self.last_full_sync = datetime.now()
             
             logger.info(f"✅ Günlük tam sync tamamlandı ({duration:.1f}s)")
-            logger.info(f"   - Siparişler: {result.get('orders_processed', 0)}")
-            logger.info(f"   - Ürünler: {result.get('products_synced', 0)}")
+            logger.info(f"   - Siparişler: {result.get('orders_fetched', 0)}")
+            logger.info(f"   - İtemler: {result.get('items_stored', 0)}")
             
         except Exception as e:
             logger.error(f"❌ Tam sync hatası: {e}", exc_info=True)
@@ -151,20 +151,21 @@ class ScheduledSyncService:
                 api_secret=self.settings.sentos_api_secret
             )
             
-            # Veriyi çek ve kaydet (ürün sync'i yok)
+            # Data fetcher service oluştur ve veriyi çek
+            fetcher = DataFetcherService(sentos_client=sentos)
             result = await asyncio.to_thread(
-                fetch_and_store_sales_data,
-                sentos_client=sentos,
+                fetcher.fetch_and_store_orders,
                 start_date=today,
                 end_date=today,
-                force_product_sync=False  # Ürünleri güncelleme
+                marketplace=None,
+                clear_existing=False
             )
             
             duration = (datetime.now() - start_time).total_seconds()
             self.last_live_sync = datetime.now()
             
             logger.info(f"✅ Canlı sync tamamlandı ({duration:.1f}s)")
-            logger.info(f"   - Siparişler: {result.get('orders_processed', 0)}")
+            logger.info(f"   - Siparişler: {result.get('orders_fetched', 0)}")
             
         except Exception as e:
             logger.error(f"❌ Canlı sync hatası: {e}", exc_info=True)
