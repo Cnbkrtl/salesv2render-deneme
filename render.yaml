@@ -8,13 +8,6 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
-    
-  # Frontend Static Site
-  - type: web
-    name: sales-analytics-frontend
-    env: static
-    buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: ./frontend/dist
 
 databases:
   # PostgreSQL Database for Production
