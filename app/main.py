@@ -80,10 +80,11 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",  # Vite default port
-        "http://localhost:3000",  # Alternative
-        "http://127.0.0.1:5173",
-        "*"  # Development için - production'da kaldırılmalı
+        "http://localhost:5173",  # Vite default port (development)
+        "http://localhost:3000",  # Alternative (development)
+        "http://127.0.0.1:5173",  # Localhost (development)
+        "https://sales-analytics-frontend.onrender.com",  # Production frontend
+        "*"  # Wildcard - tüm originlere izin verir (geçici)
     ],
     allow_credentials=True,
     allow_methods=["*"],
