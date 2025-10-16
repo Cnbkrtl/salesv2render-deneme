@@ -241,7 +241,7 @@ class DataFetcherService:
                 if idx % 50 == 0:
                     logger.info(f"Processing order {idx}/{len(unique_orders)}...")
                 
-                # 🆕 TARİH FİLTRELEME - Sadece belirtilen tarih aralığındaki siparişleri kaydet
+                # 🆕 TARİH KONTROLÜ - Sentos'tan gelen tarihi doğru kabul et, ama sınırları gevşet
                 order_date_str = order.get('order_date', '')
                 try:
                     order_date = datetime.strptime(order_date_str, "%Y-%m-%d %H:%M:%S")
@@ -249,13 +249,29 @@ class DataFetcherService:
                     start_date_only = start_dt.date()
                     end_date_only = end_dt.date()
                     
-                    # Eğer sipariş tarihi aralığın dışındaysa, atla
-                    if order_date_only < start_date_only or order_date_only > end_date_only:
+                    # ⚠️ ESNEKLIK: ±1 gün tolerans (Sentos API bazen komşu günleri de döndürebilir)
+                    # Ama çok uzak tarihleri reddet (örn: 1 hafta öncesi)
+                    date_diff_days = abs((order_date_only - start_date_only).days)
+                    
+                    if date_diff_days > 7:  # 7 günden fazla fark varsa şüpheli
                         logger.warning(
-                            f"⚠️ DATE OUT OF RANGE: Order {order['id']} date={order_date_only} "
-                            f"is outside {start_date_only} - {end_date_only}, skipping"
+                            f"⚠️ SUSPICIOUS DATE: Order {order['id']} date={order_date_only} "
+                            f"is {date_diff_days} days away from {start_date_only}, SKIPPING"
                         )
                         continue
+                    
+                    # Eğer ±1 gün dışındaysa uyar ama kaydet
+                    if order_date_only < start_date_only - timedelta(days=1):
+                        logger.info(
+                            f"📅 DATE BEFORE RANGE: Order {order['id']} date={order_date_only} "
+                            f"is before {start_date_only}, but within tolerance, SAVING"
+                        )
+                    elif order_date_only > end_date_only + timedelta(days=1):
+                        logger.info(
+                            f"📅 DATE AFTER RANGE: Order {order['id']} date={order_date_only} "
+                            f"is after {end_date_only}, but within tolerance, SAVING"
+                        )
+                        
                 except Exception as date_error:
                     logger.error(f"❌ DATE PARSE ERROR: Order {order['id']}, date={order_date_str}, error={date_error}")
                     continue
