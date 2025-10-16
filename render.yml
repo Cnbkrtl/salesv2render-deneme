@@ -1,0 +1,68 @@
+services:
+  # Backend API Service
+  - type: web
+    name: sales-analytics-backend
+    runtime: python
+    env: python
+    region: frankfurt
+    plan: free
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: APP_NAME
+        value: Sales Analytics API v2
+      - key: DEBUG
+        value: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: DATABASE_URL
+        sync: false
+      - key: SENTOS_API_URL
+        sync: false
+      - key: SENTOS_API_KEY
+        sync: false
+      - key: SENTOS_API_SECRET
+        sync: false
+      - key: SENTOS_COOKIE
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: "*"
+    healthCheckPath: /health
+    
+  # Frontend Static Site
+  - type: web
+    name: sales-analytics-frontend
+    runtime: static
+    env: static
+    region: frankfurt
+    plan: free
+    branch: main
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: ./frontend/dist
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+    envVars:
+      - key: NODE_VERSION
+        value: 18.0.0
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_API_KEY
+        sync: false
+
+databases:
+  # PostgreSQL Database for Production
+  - name: sales-analytics-db
+    databaseName: sales_analytics
+    user: sales_analytics_user
+    region: frankfurt
+    plan: free

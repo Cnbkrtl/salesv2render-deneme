@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Komisyon Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+        .result { background: #f0f0f0; padding: 15px; margin: 10px 0; border-radius: 4px; }
+        .success { color: #22c55e; font-weight: bold; }
+        .error { color: #ef4444; font-weight: bold; }
+        pre { background: #1e293b; color: #e2e8f0; padding: 15px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Komisyon API Test</h1>
+        <button onclick="testAPI()" style="padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Test API
+        </button>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        async function testAPI() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<p>Loading...</p>';
+
+            try {
+                const response = await fetch('http://localhost:8000/api/analytics/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'X-API-Key': 'your_secure_api_key_here_change_this',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        start_date: '2025-09-15',
+                        end_date: '2025-10-15'
+                    })
+                });
+
+                const data = await response.json();
+                const karlilik = data.summary.karlilik;
+
+                let html = '<div class="result">';
+                html += '<h2>✅ API Response</h2>';
+                html += '<h3>Karlılık Bilgileri:</h3>';
+                html += `<p>Ürün Maliyeti: ₺${karlilik.urun_maliyeti_kdvli.toLocaleString('tr-TR', {minimumFractionDigits: 2})}</p>`;
+                html += `<p>Kargo Gideri: ₺${karlilik.kargo_gideri.toLocaleString('tr-TR', {minimumFractionDigits: 2})}</p>`;
+                
+                if (karlilik.marketplace_komisyon !== undefined) {
+                    html += `<p class="success">Marketplace Komisyon: ₺${karlilik.marketplace_komisyon.toLocaleString('tr-TR', {minimumFractionDigits: 2})} ✅</p>`;
+                    
+                    if (karlilik.marketplace_komisyon_detay) {
+                        html += '<p><strong>Detay:</strong></p><ul>';
+                        for (const [mp, amt] of Object.entries(karlilik.marketplace_komisyon_detay)) {
+                            html += `<li>${mp}: ₺${amt.toLocaleString('tr-TR', {minimumFractionDigits: 2})}</li>`;
+                        }
+                        html += '</ul>';
+                    }
+                } else {
+                    html += '<p class="error">❌ Marketplace Komisyon: YOK!</p>';
+                }
+                
+                html += `<p>Kar: ₺${karlilik.kar.toLocaleString('tr-TR', {minimumFractionDigits: 2})}</p>`;
+                html += `<p>Kar Marjı: %${karlilik.kar_marji}</p>`;
+                html += '</div>';
+
+                html += '<div class="result"><h3>Full Response:</h3><pre>' + JSON.stringify(data.summary.karlilik, null, 2) + '</pre></div>';
+
+                resultDiv.innerHTML = html;
+
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="result"><p class="error">❌ Error: ${error.message}</p></div>`;
+            }
+        }
+
+        // Auto test on load
+        window.onload = () => testAPI();
+    </script>
+</body>
+</html>

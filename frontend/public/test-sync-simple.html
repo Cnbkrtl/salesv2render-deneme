@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sync Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <h1>Senkronizasyon Testi</h1>
+    <button onclick="testSync()">Test Sync</button>
+    <div id="result"></div>
+    
+    <script>
+        async function testSync() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = 'İstek gönderiliyor...';
+            
+            try {
+                const response = await axios.post(
+                    'http://localhost:8000/api/data/sync-products?max_pages=1',
+                    null,
+                    {
+                        headers: {
+                            'X-API-Key': 'your-secret-api-key-here',
+                            'Content-Type': 'application/json'
+                        }
+                    }
+                );
+                
+                resultDiv.innerHTML = `
+                    <h2 style="color: green;">Başarılı!</h2>
+                    <pre>${JSON.stringify(response.data, null, 2)}</pre>
+                `;
+                console.log('Success:', response.data);
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <h2 style="color: red;">Hata!</h2>
+                    <p><strong>Status:</strong> ${error.response?.status}</p>
+                    <p><strong>Message:</strong> ${error.message}</p>
+                    <pre>${JSON.stringify(error.response?.data, null, 2)}</pre>
+                `;
+                console.error('Error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

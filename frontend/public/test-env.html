@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Environment Test</title>
+</head>
+<body>
+    <h1>Environment Variables Test</h1>
+    <div id="result"></div>
+    
+    <script type="module">
+        const apiUrl = import.meta.env.VITE_API_URL;
+        const apiKey = import.meta.env.VITE_API_KEY;
+        
+        document.getElementById('result').innerHTML = `
+            <p><strong>VITE_API_URL:</strong> ${apiUrl || 'NOT SET'}</p>
+            <p><strong>VITE_API_KEY:</strong> ${apiKey || 'NOT SET'}</p>
+        `;
+        
+        console.log('VITE_API_URL:', apiUrl);
+        console.log('VITE_API_KEY:', apiKey);
+    </script>
+</body>
+</html>
