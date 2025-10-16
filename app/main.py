@@ -24,14 +24,20 @@ except ImportError as e:
     product_performance = None
     print(f"Warning: product_performance module not available: {e}")
 
-# Logging
+# Logging - Create logs directory if it doesn't exist
+log_handlers = [logging.StreamHandler(sys.stdout)]
+try:
+    os.makedirs('logs', exist_ok=True)
+    log_handlers.append(logging.FileHandler('logs/app.log', encoding='utf-8'))
+except (OSError, PermissionError):
+    # If we can't create logs directory (e.g., in read-only filesystem like Render),
+    # just use stdout
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('logs/app.log', encoding='utf-8')
-    ]
+    handlers=log_handlers
 )
 logger = logging.getLogger(__name__)
 
