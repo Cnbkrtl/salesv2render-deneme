@@ -104,10 +104,6 @@ class ScheduledSyncService:
             logger.info("🔄 Günlük tam sync başlatılıyor...")
             start_time = datetime.now()
             
-            # 7 gün geriye git (daha hızlı sync için)
-            start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
-            end_date = datetime.now().strftime('%Y-%m-%d')
-            
             # Sentos client oluştur
             sentos = SentosAPIClient(
                 api_url=self.settings.sentos_api_url,
@@ -115,8 +111,27 @@ class ScheduledSyncService:
                 api_secret=self.settings.sentos_api_secret
             )
             
-            # Data fetcher service oluştur ve veriyi çek
+            # Data fetcher service oluştur
             fetcher = DataFetcherService(sentos_client=sentos)
+            
+            # 🆕 ÖNCE ÜRÜN SYNC (RATE LIMIT İÇİN ÇOK ÖNEMLİ!)
+            logger.info("📦 Ürün sync başlatılıyor...")
+            from database import SessionLocal
+            db = SessionLocal()
+            try:
+                product_count = await asyncio.to_thread(
+                    fetcher.sync_products_from_sentos,
+                    db=db,
+                    max_pages=50  # Max 5000 ürün
+                )
+                logger.info(f"✅ Ürün sync tamamlandı: {product_count} ürün")
+            finally:
+                db.close()
+            
+            # Sonra sipariş sync (7 gün)
+            start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = datetime.now().strftime('%Y-%m-%d')
+            
             result = await asyncio.to_thread(
                 fetcher.fetch_and_store_orders,
                 start_date=start_date,
@@ -129,6 +144,7 @@ class ScheduledSyncService:
             self.last_full_sync = datetime.now()
             
             logger.info(f"✅ Günlük tam sync tamamlandı ({duration:.1f}s)")
+            logger.info(f"   - Ürünler: {product_count}")
             logger.info(f"   - Siparişler: {result.get('orders_fetched', 0)}")
             logger.info(f"   - İtemler: {result.get('items_stored', 0)}")
             

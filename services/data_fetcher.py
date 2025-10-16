@@ -583,39 +583,9 @@ class DataFetcherService:
                         )
                         break
         
-        # 6. Hala bulunamadıysa → ÖNCE SENTOS API'DEN ÇEKMEYİ DENE
-        if unit_cost_with_vat == 0.0 and base_sku:
-            try:
-                # Base SKU ile Sentos API'den ürünü çek (barcode parametresi ile)
-                logger.info(f"🔍 Ürün database'de yok, Sentos API'den çekiliyor: {base_sku}")
-                product_data = self.sentos.get_product_by_sku(base_sku, barcode=barcode)
-                
-                if product_data:
-                    # Ürünü database'e ekle (görselleri ile birlikte!)
-                    self._sync_product(db, product_data)
-                    db.flush()  # Database'e commit
-                    
-                    # Cache'leri yenile
-                    product = db.query(Product).filter(Product.sku == base_sku).first()
-                    if product:
-                        self.product_cache[base_sku] = product
-                        if product.barcode:
-                            self.product_cache_by_barcode[product.barcode] = product
-                        
-                        # Cost'u al
-                        unit_cost_with_vat = product.purchase_price_with_vat
-                        cost_source = "API_FETCHED"
-                        logger.info(f"✅ Ürün Sentos'tan çekildi ve eklendi: {base_sku} = {unit_cost_with_vat:.2f} TL")
-                        
-                        # Cache'e ekle
-                        self.cost_cache.add_to_cache(
-                            sku=product_sku,
-                            cost=unit_cost_with_vat,
-                            barcode=product.barcode,
-                            name=product.name
-                        )
-            except Exception as e:
-                logger.warning(f"⚠️ Sentos API'den ürün çekilemedi ({base_sku}): {e}")
+        # 6. ARTIK API'DEN ÇEKMİYORUZ - Rate limit problemi!
+        # Önce products sync yapılmalı, sonra orders sync
+        # Eğer ürün yoksa direkt fallback'e geç
         
         # 7. Hala bulunamadıysa fallback (SMART FALLBACK - brand-based)
         if unit_cost_with_vat == 0.0:
