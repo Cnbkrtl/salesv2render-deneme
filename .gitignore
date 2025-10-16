@@ -60,7 +60,7 @@ coverage.xml
 
 # Data & Cache
 data/
-*.json
+data/*.json
 *.backup
 
 # Development scripts (keep these local)
