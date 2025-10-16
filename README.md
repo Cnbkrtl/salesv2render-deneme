@@ -1,123 +1,354 @@
-# Sales Analytics v2 - Production Deployment
+# 📊 Sales Analytics V2
 
-Modern satış analiz platformu. Sentos API entegrasyonu ile e-ticaret satış verilerini analiz eder.
+> Sentos e-ticaret platformu için gelişmiş satış analiz ve raporlama sistemi
 
-## 🚀 Render.com Deployment
+[![Deployment Status](https://img.shields.io/badge/Status-Live-success)](https://sales-analytics-frontend.onrender.com)
+[![Backend](https://img.shields.io/badge/Backend-Python%203.11-blue)](https://sales-analytics-backend-ctxn.onrender.com)
+[![Frontend](https://img.shields.io/badge/Frontend-React%2018-61dafb)](https://reactjs.org/)
+[![License](https://img.shields.io/badge/License-Private-red)]()
 
-Bu proje Render.com üzerinde deploy edilmek üzere yapılandırılmıştır.
+## 🚀 Canlı Sistem
 
-### Deployment Adımları:
+- **Frontend:** https://sales-analytics-frontend.onrender.com
+- **Backend API:** https://sales-analytics-backend-ctxn.onrender.com
+- **Health Check:** https://sales-analytics-backend-ctxn.onrender.com/health
 
-1. **GitHub Repository'ye Push Edin**
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit for Render deployment"
-   git remote add origin <your-repo-url>
-   git push -u origin main
-   ```
+## ✨ Özellikler
 
-2. **Render Dashboard'da Blueprint Deploy Edin**
-   - Render.com'a giriş yapın
-   - "New" > "Blueprint" seçin
-   - GitHub repository'nizi bağlayın
-   - `render.yml` otomatik algılanacak
+### 📈 Gerçek Zamanlı Analizler
+- **Satış Dashboard:** Günlük, haftalık, aylık satış trendleri
+- **Ürün Performansı:** En çok satan ürünler, kar marjları
+- **Müşteri Analizleri:** Müşteri segmentasyonu ve davranış analizi
+- **Canlı Dashboard:** Anlık güncel veriler
 
-3. **Environment Variables Ekleyin**
-   
-   Backend için:
-   ```
-   DATABASE_URL=<render-postgresql-url>
-   SENTOS_API_URL=https://stildiva.sentos.com.tr/api
-   SENTOS_API_KEY=<your-key>
-   SENTOS_API_SECRET=<your-secret>
-   SENTOS_COOKIE=<your-cookie>
-   API_KEY=<your-secure-api-key>
-   ```
+### 🤖 Otomatik Veri Senkronizasyonu
+- **Günlük Tam Senkronizasyon:** Her gece saat 02:00'da tüm veriler güncellenir
+- **Canlı Güncellemeler:** Gün içinde her 10 dakikada bir anlık veriler çekilir
+- **Arka Plan İşleme:** Senkronizasyon işlemleri kullanıcı deneyimini etkilemez
+- **Manuel Kontrol:** İstediğiniz zaman manuel senkronizasyon başlatabilirsiniz
 
-   Frontend için:
-   ```
-   VITE_API_URL=https://sales-analytics-backend.onrender.com
-   VITE_API_KEY=<same-as-backend-api-key>
-   ```
+### 🎨 Modern Arayüz
+- **Responsive Tasarım:** Mobil, tablet ve masaüstü uyumlu
+- **Dark Mode:** Koyu tema desteği
+- **Hızlı Navigasyon:** Kullanıcı dostu menü yapısı
+- **Görsel Raporlar:** Grafik ve tablolarla zengin veri görselleştirme
 
-4. **Deploy**
-   - "Apply" butonuna tıklayın
-   - Backend ve Frontend otomatik deploy edilecek
+### 🔗 Sentos API Entegrasyonu
+- Ürün bilgileri ve görseller
+- Sipariş ve satış verileri
+- Müşteri bilgileri
+- Stok durumu
 
-## 📁 Proje Yapısı
+## 🛠️ Teknolojiler
+
+### Backend
+- **Python 3.11** - Ana programlama dili
+- **FastAPI** - Modern, hızlı web framework
+- **SQLAlchemy** - ORM ve veritabanı yönetimi
+- **PostgreSQL** - İlişkisel veritabanı
+- **Uvicorn** - ASGI server
+
+### Frontend
+- **React 18** - UI framework
+- **TypeScript** - Type-safe JavaScript
+- **Vite** - Hızlı build tool
+- **TailwindCSS** - Utility-first CSS framework
+- **Axios** - HTTP client
+- **date-fns** - Tarih işlemleri
+
+### Deployment
+- **Render.com** - Cloud hosting
+- **GitHub Actions** - CI/CD (optional)
+
+## 📦 Kurulum
+
+### Gereksinimler
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL 14+
+
+### Backend Kurulum
+
+```bash
+# Repository'yi clone edin
+git clone https://github.com/Cnbkrtl/salesv2render-deneme.git
+cd salesv2render-deneme
+
+# Virtual environment oluşturun
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+source .venv/bin/activate  # macOS/Linux
+
+# Bağımlılıkları yükleyin
+pip install -r requirements.txt
+
+# .env dosyası oluşturun
+cp .env.example .env
+# .env dosyasını düzenleyip API bilgilerinizi girin
+
+# Veritabanını başlatın
+python -c "from database.init_db import init_database; init_database()"
+
+# Backend'i çalıştırın
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Backend http://localhost:8000 adresinde çalışacaktır.
+
+### Frontend Kurulum
+
+```bash
+# Frontend dizinine gidin
+cd frontend
+
+# Bağımlılıkları yükleyin
+npm install
+
+# Development server'ı başlatın
+npm run dev
+
+# Production build için
+npm run build
+```
+
+Frontend http://localhost:5173 adresinde çalışacaktır.
+
+## ⚙️ Yapılandırma
+
+### Backend Environment Variables (.env)
+
+```bash
+# Database
+DATABASE_URL=postgresql://user:password@localhost:5432/sales_analytics
+
+# Sentos API
+SENTOS_API_URL=https://stildiva.sentos.com.tr/api
+SENTOS_API_KEY=your_api_key_here
+SENTOS_ACCOUNT=your_account_name
+
+# Application
+ENVIRONMENT=development
+FRONTEND_URL=http://localhost:5173
+
+# Sync Schedule (optional)
+FULL_SYNC_TIME=02:00  # Günlük tam senkronizasyon saati
+LIVE_SYNC_INTERVAL=10  # Canlı senkronizasyon aralığı (dakika)
+LIVE_SYNC_START_HOUR=8  # Canlı senkronizasyon başlangıç saati
+LIVE_SYNC_END_HOUR=23  # Canlı senkronizasyon bitiş saati
+```
+
+### Frontend Environment Variables
+
+Frontend için `.env` dosyası gerekmez, API URL'si `src/lib/api.ts` içinde yapılandırılır.
+
+## 📖 Kullanım
+
+### İlk Kurulum
+
+1. **Ürünleri Senkronize Edin**
+   - Settings sayfasına gidin
+   - "Ürün Senkronizasyonu" kartında maksimum sayfa sayısını seçin
+   - "Ürünleri Senkronize Et" butonuna tıklayın
+   - İşlem birkaç dakika sürebilir
+
+2. **Satış Verilerini Çekin**
+   - Settings sayfasında "Satış Verilerini Çek" kartına gidin
+   - Tarih aralığını seçin
+   - "Satış Verilerini Çek" butonuna tıklayın
+
+3. **Analizleri Görüntüleyin**
+   - Dashboard sayfasından genel görünümü inceleyin
+   - Analytics sayfasından detaylı raporlara erişin
+   - Product Performance'dan ürün bazlı analizleri görün
+
+### Otomatik Senkronizasyon
+
+Sistem otomatik olarak aşağıdaki senkronizasyonları yapar:
+
+- **Her Gece 02:00:** Tüm satış verilerini çeker (son 7 gün)
+- **Gün İçinde:** 08:00-23:00 arası her 10 dakikada anlık verileri günceller
+
+Manuel senkronizasyon için Settings sayfasındaki "Otomatik Senkronizasyon Durumu" kartını kullanabilirsiniz.
+
+## 🎯 API Endpoints
+
+### Health Check
+```
+GET /health
+Response: {"status": "ok", "environment": "production"}
+```
+
+### Sync Control
+```
+GET  /api/sync/status          # Senkronizasyon durumunu görüntüle
+POST /api/sync/trigger/full    # Tam senkronizasyon başlat
+POST /api/sync/trigger/live    # Canlı senkronizasyon başlat
+```
+
+### Data Management
+```
+POST /api/data/sync-products?max_pages=50  # Ürünleri senkronize et
+POST /api/data/fetch-sales                 # Satış verilerini çek
+```
+
+### Analytics
+```
+GET /api/analytics/summary?days=30         # Özet istatistikler
+GET /api/analytics/sales-trend?days=30     # Satış trendi
+GET /api/analytics/top-products?limit=10   # En çok satan ürünler
+```
+
+Tüm API dokümantasyonu: https://sales-analytics-backend-ctxn.onrender.com/docs
+
+## 🚀 Deployment
+
+### Render.com'a Deploy
+
+Bu proje Render.com üzerinde çalışacak şekilde yapılandırılmıştır.
+
+1. **GitHub Repository'yi Bağlayın**
+   - Render.com'da yeni bir Blueprint oluşturun
+   - GitHub repository'sini seçin
+   - `render.yaml` otomatik olarak algılanacaktır
+
+2. **Environment Variables Ekleyin**
+   - Backend servisine gerekli environment variables'ları ekleyin
+   - Özellikle `SENTOS_API_KEY` ve `DATABASE_URL` gereklidir
+
+3. **Deploy Edin**
+   - "Create" butonuna tıklayın
+   - Render otomatik olarak 3 servisi oluşturacaktır:
+     - Backend (Python)
+     - Frontend (Static Site)
+     - Database (PostgreSQL)
+
+4. **Doğrulayın**
+   - Backend health check: `https://your-backend.onrender.com/health`
+   - Frontend: `https://your-frontend.onrender.com`
+
+## 📊 Proje Yapısı
 
 ```
 sales-analytics-v2/
-├── app/                    # Backend API
-│   ├── api/               # API endpoints
-│   ├── core/              # Core config & enums
-│   └── models.py          # Pydantic models
-├── database/              # Database models & connection
-├── services/              # Business logic
-├── connectors/            # External API clients
-├── frontend/              # React frontend
+├── app/                          # Backend application
+│   ├── main.py                  # FastAPI app
+│   ├── models.py                # Pydantic models
+│   ├── api/                     # API endpoints
+│   │   ├── sync.py             # Sync control
+│   │   ├── data.py             # Data management
+│   │   ├── analytics.py        # Analytics
+│   │   └── ...
+│   └── core/                    # Core settings
+│       ├── config.py
+│       └── enums.py
+├── services/                     # Business logic
+│   ├── scheduled_sync.py        # Background scheduler
+│   ├── data_fetcher.py          # Sentos API client
+│   └── ...
+├── database/                     # Database layer
+│   ├── models.py                # SQLAlchemy models
+│   ├── connection.py
+│   └── init_db.py
+├── connectors/                   # External API connectors
+│   └── sentos_client.py
+├── frontend/                     # React frontend
 │   ├── src/
-│   │   ├── components/   # UI components
-│   │   ├── pages/        # Page components
-│   │   └── lib/          # API client & utils
-│   └── dist/             # Build output
-└── render.yml            # Render deployment config
+│   │   ├── pages/               # Page components
+│   │   ├── components/          # Reusable components
+│   │   ├── lib/                 # Utilities
+│   │   └── ...
+│   ├── package.json
+│   └── vite.config.ts
+├── .python-version              # Python version (3.11)
+├── requirements.txt             # Python dependencies
+├── render.yaml                  # Render.com config
+├── AI_CONTEXT.md               # AI agent context (for developers)
+└── README.md                    # This file
 ```
 
-## 🔧 Teknolojiler
+## 🐛 Sorun Giderme
 
-**Backend:**
-- FastAPI
-- SQLAlchemy
-- PostgreSQL (Production) / SQLite (Development)
-- Python 3.11+
-
-**Frontend:**
-- React 18
-- TypeScript
-- Vite
-- TailwindCSS
-- Recharts
-
-## 🌐 Endpoints
-
-- Backend API: `https://sales-analytics-backend.onrender.com`
-- Frontend: `https://sales-analytics-frontend.onrender.com`
-- API Docs: `https://sales-analytics-backend.onrender.com/docs`
-
-## 🔐 Güvenlik
-
-- API Key authentication
-- CORS yapılandırması
-- Environment variables ile hassas bilgilerin korunması
-
-## 📊 Özellikler
-
-- ✅ Satış verilerini Sentos API'den çekme
-- ✅ Ürün senkronizasyonu
-- ✅ Detaylı satış analizleri
-- ✅ Marketplace bazlı raporlama
-- ✅ Ürün performans analizi
-- ✅ Kâr/zarar hesaplamaları
-- ✅ Responsive dashboard
-
-## 🛠️ Lokal Development
-
+### Backend Çalışmıyor
 ```bash
-# Backend
-python -m venv .venv
-.venv\Scripts\activate  # Windows
-source .venv/bin/activate  # Linux/Mac
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+# Log'ları kontrol edin
+tail -f logs/app.log
 
-# Frontend
-cd frontend
-npm install
-npm run dev
+# Health check yapın
+curl http://localhost:8000/health
+
+# Database bağlantısını test edin
+python -c "from database.connection import get_db; next(get_db())"
 ```
 
-## 📝 License
+### Frontend Build Hatası
+```bash
+# Node modules'ları temizleyin
+cd frontend
+rm -rf node_modules package-lock.json
+npm install
 
-Private - All rights reserved
+# Cache'i temizleyin
+npm run build -- --force
+```
+
+### Senkronizasyon Çalışmıyor
+- Settings sayfasından sync status'u kontrol edin
+- Backend log'larında "Scheduled sync service started" mesajını arayın
+- Manuel senkronizasyon butonlarını deneyin
+- Sentos API key'inin doğru olduğundan emin olun
+
+### Rate Limit Hatası (HTTP 429)
+- Sentos API günlük/saatlik limiti aşıldı
+- Bekleyin ve daha sonra tekrar deneyin
+- `max_pages` parametresini düşürün
+
+## 🔒 Güvenlik
+
+- **API Keys:** Asla git'e commit etmeyin, `.env` dosyasında saklayın
+- **Database URL:** Production'da internal URL kullanın
+- **CORS:** Sadece frontend domain'ine izin verin
+- **Authentication:** Şu an yok (gelecek versiyon için planlanıyor)
+
+## 📝 Changelog
+
+### [2.0.0] - 2025-10-16
+
+#### Added ✨
+- Otomatik background senkronizasyon sistemi
+- Günlük tam senkronizasyon (02:00 UTC)
+- Canlı senkronizasyon (10 dakikalık aralıklar)
+- Sync status UI (Settings sayfası)
+- Manuel sync trigger butonları
+- Background task desteği (timeout sorununu çözer)
+
+#### Fixed 🐛
+- Backend 60s timeout sorunu (background tasks ile çözüldü)
+- Rate limiting problemi (health check optimize edildi)
+- CORS configuration
+- SPA routing issues
+
+#### Changed 🔄
+- Product sync artık background task olarak çalışıyor
+- Health check artık Sentos API'yi çağırmıyor
+
+### [1.0.0] - Initial Release
+- Temel dashboard ve analiz özellikleri
+- Sentos API entegrasyonu
+- Manuel veri senkronizasyonu
+
+## 🤝 Katkıda Bulunma
+
+Bu proje şu an private repository'dir. Sorularınız için issue açabilir veya pull request gönderebilirsiniz.
+
+## 📄 Lisans
+
+Private - Tüm hakları saklıdır.
+
+## 👥 İletişim
+
+- **Repository:** https://github.com/Cnbkrtl/salesv2render-deneme
+- **Issues:** https://github.com/Cnbkrtl/salesv2render-deneme/issues
+
+---
+
+**Not:** AI agent için detaylı teknik dokümantasyon `AI_CONTEXT.md` dosyasında bulunmaktadır.
