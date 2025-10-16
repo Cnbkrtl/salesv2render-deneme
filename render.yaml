@@ -18,10 +18,6 @@ services:
         value: false
       - key: LOG_LEVEL
         value: INFO
-      - key: DATABASE_URL
-        fromDatabase:
-          name: sales-analytics-db
-          property: connectionString
       - key: SENTOS_API_URL
         sync: false
       - key: SENTOS_API_KEY
