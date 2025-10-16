@@ -40,8 +40,9 @@ services:
     runtime: static
     env: static
     branch: main
-    buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: ./frontend/dist
+    rootDirectory: ./frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
     headers:
       - path: /*
         name: X-Frame-Options
