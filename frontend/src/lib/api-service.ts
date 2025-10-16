@@ -141,3 +141,31 @@ export const getMetrics = async (
     }, {} as Record<string, { orders: number; revenue: number }>),
   };
 };
+
+// Sync Status Types
+export interface SyncStatus {
+  is_running: boolean;
+  last_full_sync: string | null;
+  last_live_sync: string | null;
+  full_sync_time: string;
+  live_sync_interval_minutes: number;
+  timestamp: string;
+}
+
+// Get sync status
+export const getSyncStatus = async (): Promise<SyncStatus> => {
+  const response = await apiClient.get('/api/sync/status');
+  return response.data;
+};
+
+// Trigger full sync
+export const triggerFullSync = async (): Promise<{status: string; message: string}> => {
+  const response = await apiClient.post('/api/sync/trigger/full');
+  return response.data;
+};
+
+// Trigger live sync
+export const triggerLiveSync = async (): Promise<{status: string; message: string}> => {
+  const response = await apiClient.post('/api/sync/trigger/live');
+  return response.data;
+};

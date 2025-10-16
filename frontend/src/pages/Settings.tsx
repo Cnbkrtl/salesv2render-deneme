@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { syncProducts, fetchSalesData } from '../lib/api-service';
-import { Database, Download, Settings as SettingsIcon } from 'lucide-react';
+import { syncProducts, fetchSalesData, getSyncStatus, triggerFullSync, triggerLiveSync, type SyncStatus } from '../lib/api-service';
+import { Database, Download, Settings as SettingsIcon, Clock, RefreshCw } from 'lucide-react';
 import { format, subDays } from 'date-fns';
+import { tr } from 'date-fns/locale';
 
 const Settings: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
@@ -13,6 +14,72 @@ const Settings: React.FC = () => {
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [maxPages, setMaxPages] = useState<number>(50); // Varsayılan 50 sayfa (5000 ürün)
+  
+  // Sync status state
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+
+  // Fetch sync status on mount and every 30 seconds
+  useEffect(() => {
+    const fetchSyncStatus = async () => {
+      try {
+        const status = await getSyncStatus();
+        setSyncStatus(status);
+      } catch (err) {
+        console.error('Sync status fetch error:', err);
+      }
+    };
+
+    fetchSyncStatus();
+    const interval = setInterval(fetchSyncStatus, 30000); // 30 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleTriggerFullSync = async () => {
+    setSyncLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await triggerFullSync();
+      setSuccess('✅ Tam senkronizasyon başlatıldı! Bir kaç dakika içinde tamamlanacak.');
+      setTimeout(() => setSuccess(null), 5000);
+      // Refresh status
+      const status = await getSyncStatus();
+      setSyncStatus(status);
+    } catch (err) {
+      setError('Tam senkronizasyon başlatılamadı');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleTriggerLiveSync = async () => {
+    setSyncLoading(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await triggerLiveSync();
+      setSuccess('✅ Canlı senkronizasyon başlatıldı!');
+      setTimeout(() => setSuccess(null), 5000);
+      // Refresh status
+      const status = await getSyncStatus();
+      setSyncStatus(status);
+    } catch (err) {
+      setError('Canlı senkronizasyon başlatılamadı');
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const formatSyncTime = (dateStr: string | null) => {
+    if (!dateStr) return 'Henüz yapılmadı';
+    try {
+      const date = new Date(dateStr);
+      return format(date, 'dd MMM yyyy HH:mm', { locale: tr });
+    } catch {
+      return 'Geçersiz tarih';
+    }
+  };
 
   const handleSyncProducts = async () => {
     console.log('🔄 Ürün senkronizasyonu başlatılıyor...', { maxPages });
@@ -92,7 +159,101 @@ const Settings: React.FC = () => {
       <div className="space-y-4">
         <h2 className="text-2xl font-semibold">Veri Yönetimi</h2>
         
-        {/* Product Sync Card */}
+        {/* Automated Sync Status Card */}
+        <Card className="border-2 border-blue-200 dark:border-blue-800">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className={`h-5 w-5 ${syncStatus?.is_running ? 'animate-spin text-blue-600' : ''}`} />
+              Otomatik Senkronizasyon Durumu
+            </CardTitle>
+            <CardDescription>
+              Arka planda otomatik olarak çalışan veri senkronizasyon sistemi
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Status Overview */}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950 dark:to-purple-900 p-4 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Clock className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                    <span className="text-sm font-medium text-purple-900 dark:text-purple-100">
+                      Son Tam Senkronizasyon
+                    </span>
+                  </div>
+                  <p className="text-lg font-bold text-purple-900 dark:text-purple-100">
+                    {formatSyncTime(syncStatus?.last_full_sync || null)}
+                  </p>
+                  <p className="text-xs text-purple-700 dark:text-purple-300 mt-1">
+                    Her gün saat {syncStatus?.full_sync_time || '02:00'}
+                  </p>
+                </div>
+
+                <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950 dark:to-green-900 p-4 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Clock className="h-4 w-4 text-green-600 dark:text-green-400" />
+                    <span className="text-sm font-medium text-green-900 dark:text-green-100">
+                      Son Canlı Senkronizasyon
+                    </span>
+                  </div>
+                  <p className="text-lg font-bold text-green-900 dark:text-green-100">
+                    {formatSyncTime(syncStatus?.last_live_sync || null)}
+                  </p>
+                  <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                    Her {syncStatus?.live_sync_interval_minutes || 10} dakikada (08:00-23:00)
+                  </p>
+                </div>
+              </div>
+
+              {/* Info Box */}
+              <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-md border border-blue-200 dark:border-blue-800">
+                <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">🤖 Otomatik Sistem</h4>
+                <p className="text-sm text-blue-800 dark:text-blue-200 mb-2">
+                  Bu sistem arka planda sürekli çalışır ve verilerinizi güncel tutar:
+                </p>
+                <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1 list-disc list-inside">
+                  <li><strong>Tam Senkronizasyon:</strong> Her gece saat {syncStatus?.full_sync_time || '02:00'}'da tüm satış verilerini çeker</li>
+                  <li><strong>Canlı Senkronizasyon:</strong> Gündüz saatlerinde (08:00-23:00) her {syncStatus?.live_sync_interval_minutes || 10} dakikada güncel verileri çeker</li>
+                  <li><strong>Otomatik:</strong> Hiçbir işlem yapmanıza gerek yok, sistem kendi başına çalışır</li>
+                </ul>
+              </div>
+
+              {/* Manual Trigger Buttons */}
+              <div className="bg-muted/50 p-4 rounded-md">
+                <h4 className="font-medium mb-3">Manuel Senkronizasyon</h4>
+                <p className="text-sm text-muted-foreground mb-3">
+                  İsterseniz manuel olarak da senkronizasyon başlatabilirsiniz:
+                </p>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Button
+                    onClick={handleTriggerFullSync}
+                    disabled={syncLoading || syncStatus?.is_running || false}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    <Database className={`mr-2 h-4 w-4 ${syncLoading ? 'animate-spin' : ''}`} />
+                    Tam Senkronizasyon Başlat
+                  </Button>
+                  <Button
+                    onClick={handleTriggerLiveSync}
+                    disabled={syncLoading || syncStatus?.is_running || false}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    <RefreshCw className={`mr-2 h-4 w-4 ${syncLoading ? 'animate-spin' : ''}`} />
+                    Canlı Senkronizasyon Başlat
+                  </Button>
+                </div>
+                {syncStatus?.is_running && (
+                  <p className="text-xs text-orange-600 dark:text-orange-400 mt-2 text-center">
+                    ⚠️ Senkronizasyon şu anda çalışıyor, lütfen bekleyin...
+                  </p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
