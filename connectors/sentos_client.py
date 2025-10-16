@@ -23,6 +23,11 @@ class SentosAPIClient:
             "Accept": "application/json"
         }
         
+        # Cookie varsa header'a ekle
+        if api_cookie:
+            self.headers["Cookie"] = api_cookie
+            logger.info("🍪 Cookie added to request headers")
+        
         # Retry settings - Rate limiting için optimize edildi
         self.max_retries = 5
         self.retry_delay = 5  # İlk retry 5 saniye

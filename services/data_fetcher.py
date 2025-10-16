@@ -935,14 +935,42 @@ class DataFetcherService:
         # Ürünü bul veya oluştur
         product = db.query(Product).filter(Product.sku == sku).first()
         
-        # Extract image - ilk görseli al
+        # Extract image - En iyi görseli seç
         image_url = None
         if 'images' in product_data and isinstance(product_data['images'], list) and len(product_data['images']) > 0:
-            first_image = product_data['images'][0]
-            if isinstance(first_image, dict):
-                image_url = first_image.get('url') or first_image.get('image_url')
-            elif isinstance(first_image, str):
-                image_url = first_image
+            # Önce 'order' field'ına göre sırala (varsa)
+            sorted_images = sorted(
+                product_data['images'],
+                key=lambda x: x.get('order', 999) if isinstance(x, dict) else 999
+            )
+            
+            # İlk görseli al (ölçü tablosu pattern'i varsa atla)
+            for img in sorted_images:
+                img_url = None
+                if isinstance(img, dict):
+                    img_url = img.get('url') or img.get('image_url')
+                elif isinstance(img, str):
+                    img_url = img
+                
+                # Ölçü tablosu kontrolü (sadece spesifik pattern'ler)
+                if img_url:
+                    filename = img_url.split('/')[-1].lower()  # Sadece dosya adı
+                    # Ölçü tablosu pattern'leri: olcu, size-chart, beden-tablosu vb.
+                    skip_patterns = [
+                        'olcu', 'ölçü', 'size-chart', 'sizechart',
+                        'beden-tablosu', 'bedentablosu', 'size-guide'
+                    ]
+                    if not any(pattern in filename for pattern in skip_patterns):
+                        image_url = img_url
+                        break  # İlk uygun görseli al
+            
+            # Eğer hiçbiri uygun değilse, yine de ilk görseli al
+            if not image_url and len(sorted_images) > 0:
+                first_image = sorted_images[0]
+                if isinstance(first_image, dict):
+                    image_url = first_image.get('url') or first_image.get('image_url')
+                elif isinstance(first_image, str):
+                    image_url = first_image
         
         if not product:
             product = Product(
