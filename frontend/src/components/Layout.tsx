@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, BarChart3, TrendingUp, Settings } from 'lucide-react';
+import { Home, BarChart3, TrendingUp, Settings, Shield } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -14,6 +14,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { path: '/analytics', label: 'Veri Analiz', icon: BarChart3 },
     { path: '/product-performance', label: 'Ürün Performans', icon: TrendingUp },
     { path: '/settings', label: 'Ayarlar', icon: Settings },
+    { path: '/admin', label: 'Admin Panel', icon: Shield },
   ];
 
   const isActive = (path: string) => {

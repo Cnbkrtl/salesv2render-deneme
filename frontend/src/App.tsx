@@ -4,6 +4,7 @@ import LiveDashboard from './pages/LiveDashboard'
 import Analytics from './pages/Analytics'
 import ProductPerformance from './pages/ProductPerformance'
 import Settings from './pages/Settings'
+import AdminPanel from './pages/AdminPanel'
 import './App.css'
 
 function App() {
@@ -15,6 +16,7 @@ function App() {
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/product-performance" element={<ProductPerformance />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/admin" element={<AdminPanel />} />
         </Routes>
       </Layout>
     </Router>
