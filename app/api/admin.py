@@ -268,8 +268,9 @@ def _sync_products():
     
     db = SessionLocal()
     try:
-        # Max 20 sayfa = 2000 ürün (timeout önlemek için)
-        return fetcher.sync_products_from_sentos(db, max_pages=20)
+        # ⚠️ ÇOK KÜÇÜK BATCH: 10 sayfa = 1000 ürün
+        # Her 5 sayfada sleep (health check için)
+        return fetcher.sync_products_from_sentos(db, max_pages=10)
     finally:
         db.close()
 

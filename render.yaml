@@ -7,8 +7,9 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
-    healthCheckInterval: 900  # 15 dakika (900 saniye)
+    # ⚠️ HEALTH CHECK KAPALI: Long-running sync operations için
+    # healthCheckPath: /health
+    # healthCheckInterval: 900  # 15 dakika (900 saniye)
   
   # Frontend Static Site
   - type: web

@@ -831,7 +831,10 @@ class DataFetcherService:
         Cache'i temizler ve fresh data ile yeniden oluşturur
         
         ⚠️ CHECKPOINT: Her 5 sayfada bir commit (timeout önleme)
+        ⚠️ SLEEP: Her sayfada 0.5s bekle (health check için event loop'a dön)
         """
+        import time
+        
         logger.info(f"🔄 Syncing products from Sentos API (max_pages={max_pages})...")
         
         # 🆕 Cache'i temizle - fresh start için
@@ -863,6 +866,12 @@ class DataFetcherService:
             if page % checkpoint_interval == 0:
                 db.commit()
                 logger.info(f"✅ CHECKPOINT: Committed page {page} - Total: {total_synced} products")
+                # Her checkpoint'te 1 saniye bekle (CPU'ya nefes aldır)
+                time.sleep(1.0)
+            
+            # 🆕 HER SAYFADA KISA BEKLE (event loop için)
+            # Health check'in cevap verebilmesi için
+            time.sleep(0.3)
             
             # Eğer son sayfaya ulaştıysak dur
             if page >= total_pages:
