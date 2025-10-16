@@ -13,7 +13,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.core import get_settings
-from app.api import health, data, analytics
+from app.api import health, data, analytics, admin
 
 # Import product_performance early
 try:
@@ -186,6 +186,10 @@ except Exception as e:
 
 app.include_router(data.router, dependencies=[Depends(verify_api_key)])
 app.include_router(analytics.router, dependencies=[Depends(verify_api_key)])
+
+# Admin Router (⚠️ GÜVENLI! API key gerekli)
+app.include_router(admin.router, dependencies=[Depends(verify_api_key)])
+logger.info("✅ Admin router registered (protected with API key)")
 
 # Product Performance Router
 if HAS_PRODUCT_PERFORMANCE and product_performance is not None:
