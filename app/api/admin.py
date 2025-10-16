@@ -106,85 +106,110 @@ async def full_resync(
     """
     Database'i temizleyip yeniden sync yapar
     
+    ⚠️ ÖNEMLİ: Scheduler otomatik durdurulur ve sonra devam ettirilir
+    
     Adımlar:
-    1. (Opsiyonel) Belirtilen tarih aralığını temizle
-    2. Products sync (batch)
-    3. Orders sync
+    1. Scheduler PAUSE
+    2. (Opsiyonel) Belirtilen tarih aralığını temizle
+    3. Products sync (batch)
+    4. Orders sync
+    5. Scheduler RESUME
     """
     try:
         logger.info(f"🔄 FULL RESYNC başlatılıyor: {start_date} - {end_date}")
         
-        db = SessionLocal()
+        # 🆕 1. SCHEDULER'I DURDUR!
+        from services.scheduled_sync import get_scheduler
+        scheduler = get_scheduler()
+        scheduler.pause()
+        logger.warning("⏸️  SCHEDULER PAUSED - Full resync in progress")
         
-        # 1. Temizle (istenirse)
-        if clear_first:
-            logger.info("🗑️  Mevcut veriler temizleniyor...")
-            
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-            
-            orders_to_delete = db.query(SalesOrder).filter(
-                SalesOrder.order_date >= start_dt,
-                SalesOrder.order_date < end_dt
-            ).all()
-            
-            order_ids = [o.id for o in orders_to_delete]
-            
-            items_deleted = db.query(SalesOrderItem).filter(
-                SalesOrderItem.order_id.in_(order_ids)
-            ).delete(synchronize_session=False) if order_ids else 0
-            
-            orders_deleted = db.query(SalesOrder).filter(
-                SalesOrder.order_date >= start_dt,
-                SalesOrder.order_date < end_dt
-            ).delete(synchronize_session=False)
-            
-            db.commit()
-            logger.info(f"✅ Temizlendi: {orders_deleted} sipariş, {items_deleted} item")
-        
-        db.close()
-        
-        # 2. Sentos client
-        sentos = SentosAPIClient(
-            api_url=settings.sentos_api_url,
-            api_key=settings.sentos_api_key,
-            api_secret=settings.sentos_api_secret
-        )
-        
-        fetcher = DataFetcherService(sentos_client=sentos)
-        
-        # 3. ÖNCE PRODUCTS SYNC (rate limit için önemli!)
-        # ⚠️ KÜÇÜK BATCH - Render timeout önlemek için
-        logger.info("📦 Products sync başlatılıyor...")
-        db = SessionLocal()
         try:
-            # Max 20 sayfa = 2000 ürün (timeout önlemek için)
-            product_count = fetcher.sync_products_from_sentos(db, max_pages=20)
-            logger.info(f"✅ Products sync tamamlandı: {product_count} ürün")
-        finally:
+            db = SessionLocal()
+            
+            # 2. Temizle (istenirse)
+            if clear_first:
+                logger.info("🗑️  Mevcut veriler temizleniyor...")
+                
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+                
+                orders_to_delete = db.query(SalesOrder).filter(
+                    SalesOrder.order_date >= start_dt,
+                    SalesOrder.order_date < end_dt
+                ).all()
+                
+                order_ids = [o.id for o in orders_to_delete]
+                
+                items_deleted = db.query(SalesOrderItem).filter(
+                    SalesOrderItem.order_id.in_(order_ids)
+                ).delete(synchronize_session=False) if order_ids else 0
+                
+                orders_deleted = db.query(SalesOrder).filter(
+                    SalesOrder.order_date >= start_dt,
+                    SalesOrder.order_date < end_dt
+                ).delete(synchronize_session=False)
+                
+                db.commit()
+                logger.info(f"✅ Temizlendi: {orders_deleted} sipariş, {items_deleted} item")
+            
             db.close()
+            
+            # 3. Sentos client
+            sentos = SentosAPIClient(
+                api_url=settings.sentos_api_url,
+                api_key=settings.sentos_api_key,
+                api_secret=settings.sentos_api_secret
+            )
+            
+            fetcher = DataFetcherService(sentos_client=sentos)
+            
+            # 4. ÖNCE PRODUCTS SYNC (rate limit için önemli!)
+            # ⚠️ KÜÇÜK BATCH - Render timeout önlemek için
+            logger.info("📦 Products sync başlatılıyor...")
+            db = SessionLocal()
+            try:
+                # Max 20 sayfa = 2000 ürün (timeout önlemek için)
+                product_count = fetcher.sync_products_from_sentos(db, max_pages=20)
+                logger.info(f"✅ Products sync tamamlandı: {product_count} ürün")
+            finally:
+                db.close()
+            
+            # 5. ORDERS SYNC
+            logger.info(f"📊 Orders sync başlatılıyor: {start_date} - {end_date}")
+            result = fetcher.fetch_and_store_orders(
+                start_date=start_date,
+                end_date=end_date,
+                marketplace=None,
+                clear_existing=False
+            )
+            
+            logger.info(f"✅ FULL RESYNC tamamlandı!")
+            
+            return {
+                "status": "success",
+                "message": "Full resync tamamlandı",
+                "products_synced": product_count,
+                "orders_synced": result.get("orders_fetched", 0),
+                "items_synced": result.get("items_stored", 0),
+                "duration_seconds": result.get("duration_seconds", 0)
+            }
         
-        # 4. ORDERS SYNC
-        logger.info(f"📊 Orders sync başlatılıyor: {start_date} - {end_date}")
-        result = fetcher.fetch_and_store_orders(
-            start_date=start_date,
-            end_date=end_date,
-            marketplace=None,
-            clear_existing=False
-        )
-        
-        logger.info(f"✅ FULL RESYNC tamamlandı!")
-        
-        return {
-            "status": "success",
-            "message": "Full resync tamamlandı",
-            "products_synced": product_count,
-            "orders_synced": result.get("orders_fetched", 0),
-            "items_synced": result.get("items_stored", 0),
-            "duration_seconds": result.get("duration_seconds", 0)
-        }
+        finally:
+            # 🆕 6. SCHEDULER'I YENİDEN BAŞLAT!
+            scheduler.resume()
+            logger.info("▶️  SCHEDULER RESUMED - Full resync completed")
         
     except Exception as e:
+        # 🆕 HATA DURUMUNDA DA SCHEDULER'I BAŞLAT!
+        try:
+            from services.scheduled_sync import get_scheduler
+            scheduler = get_scheduler()
+            scheduler.resume()
+            logger.warning("▶️  SCHEDULER RESUMED after error")
+        except:
+            pass
+        
         logger.error(f"❌ Full resync hatası: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 

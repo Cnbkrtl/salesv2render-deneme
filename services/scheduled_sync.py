@@ -24,6 +24,7 @@ class ScheduledSyncService:
     def __init__(self):
         self.settings = get_settings()
         self.is_running = False
+        self.is_paused = False  # 🆕 PAUSE FLAG
         self.full_sync_time = time(2, 0)  # Sabah 02:00
         self.live_sync_interval = 600  # 10 dakika (saniye cinsinden)
         self.last_full_sync: Optional[datetime] = None
@@ -54,11 +55,27 @@ class ScheduledSyncService:
             except asyncio.CancelledError:
                 pass
         logger.info("Scheduled sync service durduruldu")
+    
+    def pause(self):
+        """🆕 Scheduler'ı duraklat (admin full resync için)"""
+        self.is_paused = True
+        logger.warning("⏸️  SCHEDULER PAUSED (Admin operation in progress)")
+    
+    def resume(self):
+        """🆕 Scheduler'ı devam ettir"""
+        self.is_paused = False
+        logger.info("▶️  SCHEDULER RESUMED")
         
     async def _run_scheduler(self):
         """Ana scheduler loop"""
         while self.is_running:
             try:
+                # 🆕 PAUSE kontrolü
+                if self.is_paused:
+                    logger.debug("⏸️  Scheduler paused, waiting...")
+                    await asyncio.sleep(10)  # 10 saniye bekle
+                    continue
+                
                 now = datetime.now()
                 
                 # Günlük tam sync kontrolü
