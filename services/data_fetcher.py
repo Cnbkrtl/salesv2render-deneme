@@ -916,7 +916,7 @@ class DataFetcherService:
                 self.product_cache_by_barcode[product.barcode] = product
         
         # Disk'e kaydet
-        self.cost_cache.save_cache()
+        self.cost_cache._save_cache()
         logger.info(f"✅ Cache rebuilt: {len(all_products)} products loaded")
     
     def _sync_product(self, db: Session, product_data: Dict):
