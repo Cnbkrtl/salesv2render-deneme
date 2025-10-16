@@ -150,20 +150,25 @@ class AnalyticsService:
         
         net_satilan_adet = sum(item.quantity for item in net_items)
         
-        # ⚠️ ÖNEMLİ: NET CİRO = SADECE ÜRÜN CİROSU (kargo hariç!)
-        # Kaynak sistem böyle hesaplıyor!
+        # ÜRÜN CİROSU
         net_ciro_urunler = sum(item.item_amount for item in net_items)
         
-        # Kargo ücreti (order level) - AYRI GÖSTERİLECEK
+        # KARGO ÜCRETİ (order level) - Net siparişlerden
+        net_orders = [order for order in orders if order.id not in iptal_iade_order_ids]
+        net_kargo = sum(order.shipping_total for order in net_orders)
+        
+        # İptal/İade siparişlerin kargosu
+        iptal_orders = [order for order in orders if order.id in iptal_iade_order_ids]
+        iptal_kargo = sum(order.shipping_total for order in iptal_orders)
+        
+        # Toplam kargo (tüm siparişler)
         kargo_ucreti_toplam = sum(order.shipping_total for order in orders)
         
-        # BRÜT CİRO (ÜRÜN) = Net ürün cirosu + İptal/İade ürün cirosu
-        brut_ciro_urunler = net_ciro_urunler + iptal_iade_ciro
-        
-        # 📊 KAYNAK SİSTEME GÖRE:
-        # - "Satış" = SADECE ÜRÜN CİROSU (kargo hariç!)
-        net_ciro = net_ciro_urunler
-        brut_ciro = brut_ciro_urunler
+        # 📊 KAYNAK SİSTEM MANTIĞI:
+        # Net Satış = Net Ürün + Net Kargo (iptal/iade HARİÇ!)
+        # Brüt Satış = Net Satış + İptal/İade (ürün + kargo)
+        net_ciro = net_ciro_urunler + net_kargo
+        brut_ciro = net_ciro + iptal_iade_ciro + iptal_kargo
         
         # Brüt metrikler
         brut_satilan_adet = sum(item.quantity for item in items)
