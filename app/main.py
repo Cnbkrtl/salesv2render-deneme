@@ -122,15 +122,29 @@ async def startup_event():
         logger.error(f"ERROR Database initialization error: {e}")
     
     # Start scheduled sync service
+    logger.info("🔄 Attempting to start scheduler...")
     try:
         from services.scheduled_sync import get_scheduler
+        logger.info("   ✓ Scheduler module imported")
+        
         scheduler = get_scheduler()
+        logger.info(f"   ✓ Scheduler instance created: {scheduler}")
+        
         await scheduler.start()
-        logger.info("✅ Scheduled sync service started")
+        logger.info("✅ Scheduled sync service started successfully")
+        logger.info(f"   - Full sync time: {scheduler.full_sync_time.strftime('%H:%M')}")
+        logger.info(f"   - Live sync interval: {scheduler.live_sync_interval // 60} minutes")
+        logger.info(f"   - Scheduler is running: {scheduler.is_running}")
+        
     except ImportError as e:
         logger.error(f"❌ Cannot import scheduler module: {e}")
+        logger.error("   This is likely a missing dependency or module not found")
+    except AttributeError as e:
+        logger.error(f"❌ Scheduler attribute error: {e}")
+        logger.error("   Check if scheduled_sync.py has all required methods")
     except Exception as e:
         logger.error(f"❌ Failed to start scheduler: {e}", exc_info=True)
+        logger.error(f"   Exception type: {type(e).__name__}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -159,16 +173,19 @@ async def root():
 
 # Include routers
 app.include_router(health.router)  # No auth required
-app.include_router(data.router, dependencies=[Depends(verify_api_key)])
-app.include_router(analytics.router, dependencies=[Depends(verify_api_key)])
 
-# Sync Control Router
+# Sync Control Router (NO AUTH for easier testing)
 try:
     from app.api import sync
-    app.include_router(sync.router, dependencies=[Depends(verify_api_key)])
-    logger.info("Sync control router registered")
+    app.include_router(sync.router)  # No auth dependency
+    logger.info("✅ Sync control router registered (no auth)")
+except ImportError as e:
+    logger.error(f"❌ Failed to import sync router: {e}")
 except Exception as e:
-    logger.error(f"Failed to register sync router: {e}")
+    logger.error(f"❌ Failed to register sync router: {e}", exc_info=True)
+
+app.include_router(data.router, dependencies=[Depends(verify_api_key)])
+app.include_router(analytics.router, dependencies=[Depends(verify_api_key)])
 
 # Product Performance Router
 if HAS_PRODUCT_PERFORMANCE and product_performance is not None:
