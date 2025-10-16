@@ -127,8 +127,10 @@ async def startup_event():
         scheduler = get_scheduler()
         await scheduler.start()
         logger.info("✅ Scheduled sync service started")
+    except ImportError as e:
+        logger.error(f"❌ Cannot import scheduler module: {e}")
     except Exception as e:
-        logger.error(f"❌ Failed to start scheduler: {e}")
+        logger.error(f"❌ Failed to start scheduler: {e}", exc_info=True)
 
 @app.on_event("shutdown")
 async def shutdown_event():

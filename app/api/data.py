@@ -2,7 +2,7 @@
 Data Management Endpoints
 Veri çekme ve ürün sync işlemleri
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from datetime import datetime
 import sys
 import os
@@ -73,13 +73,15 @@ async def fetch_sales_data(
 
 @router.post("/sync-products")
 async def sync_products(
+    background_tasks: BackgroundTasks,
     max_pages: int = 10,
     fetcher: DataFetcherService = Depends(get_data_fetcher)
 ):
     """
-    Sentos'tan ürünleri çeker ve maliyet bilgilerini günceller
+    Sentos'tan ürünleri çeker ve maliyet bilgilerini günceller (background task)
     
     **Önemli:**
+    - İşlem arka planda çalışır, hemen response döner
     - purchase_price: KDV'siz alış fiyatı
     - vat_rate: KDV oranı (varsayılan %10)
     - purchase_price_with_vat: KDV'li maliyet (hesaplanır)
@@ -89,23 +91,25 @@ async def sync_products(
     
     logger.info(f"🔄 sync_products endpoint çağrıldı - max_pages: {max_pages}")
     
-    try:
-        db = SessionLocal()
-        logger.info("📊 Database bağlantısı oluşturuldu")
-        
-        logger.info("🚀 sync_products_from_sentos başlatılıyor...")
-        total_synced = fetcher.sync_products_from_sentos(db, max_pages=max_pages)
-        
-        logger.info(f"✅ Senkronizasyon tamamlandı: {total_synced} ürün")
-        db.close()
-        
-        return {
-            "success": True,
-            "products_synced": total_synced,
-            "message": f"Successfully synced {total_synced} products"
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Senkronizasyon hatası: {str(e)}")
-        logger.exception(e)
-        raise HTTPException(status_code=500, detail=str(e))
+    def run_sync():
+        try:
+            db = SessionLocal()
+            logger.info("📊 Database bağlantısı oluşturuldu")
+            
+            logger.info("🚀 sync_products_from_sentos başlatılıyor...")
+            total_synced = fetcher.sync_products_from_sentos(db, max_pages=max_pages)
+            
+            logger.info(f"✅ Senkronizasyon tamamlandı: {total_synced} ürün")
+            db.close()
+        except Exception as e:
+            logger.error(f"❌ Senkronizasyon hatası: {str(e)}")
+            logger.exception(e)
+    
+    # Background task olarak çalıştır
+    background_tasks.add_task(run_sync)
+    
+    return {
+        "success": True,
+        "message": f"Product sync başlatıldı (max {max_pages} pages). İşlem arka planda devam ediyor.",
+        "status": "running"
+    }
