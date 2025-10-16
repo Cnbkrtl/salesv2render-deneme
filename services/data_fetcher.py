@@ -646,9 +646,18 @@ class DataFetcherService:
         commission_rate = 0.0
         commission_amount = 0.0
         
-        # Calculated flags
-        is_return = (item_status == ItemStatus.REJECTED.value)
+        # 🎯 DOĞRU MANTIK:
+        # İptal/İade = SİPARİŞ BAZLI (order_status == 6)
+        # Eğer sipariş iptal/iade edilmişse, TÜM items de iptal/iade sayılır
+        # 
+        # ❌ YANLIŞTI: item_status == "rejected" → iade (YANLIŞ!)
+        # ✅ DOĞRUSU: Sipariş status'üne bak
+        #
+        # item_status "rejected" = Müşterinin onaylamadığı ürün (iade DEĞİL!)
+        # order_status = 6 → Gerçek iptal/iade
+        
         is_cancelled = (order_status == OrderStatus.IPTAL_IADE.value)
+        is_return = False  # Şimdilik kullanmıyoruz (sipariş bazlı mantık)
         
         # SalesOrderItem kaydet veya güncelle
         sales_item = db.query(SalesOrderItem).filter(

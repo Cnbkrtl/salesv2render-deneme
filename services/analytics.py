@@ -106,7 +106,12 @@ class AnalyticsService:
     
     def _calculate_summary(self, orders: List, items: List) -> Dict:
         """
-        Özet metrikleri hesaplar - DÜZELTILMIŞ FORMATTA
+        Özet metrikleri hesaplar - KAYNAK SİSTEMLE UYUMLU FORMÜL
+        
+        DOĞRU MANTIK:
+        - İptal/İade = order_status == 6 olanlar (tüm order)
+        - Satış (Net Ciro) = SADECE ÜRÜN CİROSU (kargo hariç!)
+        - Brüt Ciro = Net + İptal/İade
         
         Returns:
             {
@@ -117,9 +122,22 @@ class AnalyticsService:
             }
         """
         
-        # İPTAL/İADE Metrikler ÖNCE (çünkü brüt hesabında kullanılacak)
-        iptal_items = [item for item in items if item.is_cancelled]
-        iade_items = [item for item in items if item.is_return]
+        # 🎯 İPTAL/İADE = order_status == 6 olan SİPARİŞLER
+        iptal_iade_order_ids = set()
+        for order in orders:
+            if order.order_status == 6:  # İptal/İade Edildi
+                iptal_iade_order_ids.add(order.id)
+        
+        # İptal/İade items
+        iptal_iade_items = [item for item in items if item.order_id in iptal_iade_order_ids]
+        
+        iptal_iade_ciro = sum(item.item_amount for item in iptal_iade_items)
+        iptal_iade_adet = sum(item.quantity for item in iptal_iade_items)
+        iptal_iade_siparis_sayisi = len(iptal_iade_order_ids)
+        
+        # Alt kırılım (opsiyonel - detay için)
+        iptal_items = [item for item in iptal_iade_items if item.item_status == "accepted"]
+        iade_items = [item for item in iptal_iade_items if item.item_status == "rejected"]
         
         iptal_ciro = sum(item.item_amount for item in iptal_items)
         iptal_adet = sum(item.quantity for item in iptal_items)
@@ -127,30 +145,25 @@ class AnalyticsService:
         iade_ciro = sum(item.item_amount for item in iade_items)
         iade_adet = sum(item.quantity for item in iade_items)
         
-        iptal_iade_ciro = iptal_ciro + iade_ciro
-        iptal_iade_adet = iptal_adet + iade_adet
-        
-        # İptal/İade sipariş sayısı
-        iptal_iade_order_ids = set()
-        for item in items:
-            if item.is_cancelled or item.is_return:
-                iptal_iade_order_ids.add(item.order_id)
-        iptal_iade_siparis_sayisi = len(iptal_iade_order_ids)
-        
-        # NET Metrikler (iptal/iade çıkarılmış)
-        net_items = [item for item in items if not item.is_cancelled and not item.is_return]
+        # NET Metrikler (iptal/iade HARİÇ)
+        net_items = [item for item in items if item.order_id not in iptal_iade_order_ids]
         
         net_satilan_adet = sum(item.quantity for item in net_items)
+        
+        # ⚠️ ÖNEMLİ: NET CİRO = SADECE ÜRÜN CİROSU (kargo hariç!)
+        # Kaynak sistem böyle hesaplıyor!
         net_ciro_urunler = sum(item.item_amount for item in net_items)
         
-        # Kargo ücreti (order level) - müşteriden alınan
+        # Kargo ücreti (order level) - AYRI GÖSTERİLECEK
         kargo_ucreti_toplam = sum(order.shipping_total for order in orders)
         
-        # NET CİRO = Net ürünler + Kargo (kargo düşmüyor!)
-        net_ciro = net_ciro_urunler + kargo_ucreti_toplam
+        # BRÜT CİRO (ÜRÜN) = Net ürün cirosu + İptal/İade ürün cirosu
+        brut_ciro_urunler = net_ciro_urunler + iptal_iade_ciro
         
-        # BRÜT CİRO = Net ciro + İptal/İade ciro
-        brut_ciro = net_ciro + iptal_iade_ciro
+        # 📊 KAYNAK SİSTEME GÖRE:
+        # - "Satış" = SADECE ÜRÜN CİROSU (kargo hariç!)
+        net_ciro = net_ciro_urunler
+        brut_ciro = brut_ciro_urunler
         
         # Brüt metrikler
         brut_satilan_adet = sum(item.quantity for item in items)
