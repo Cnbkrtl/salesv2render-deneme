@@ -356,7 +356,11 @@ async def check_date_data(date: str):
         from datetime import datetime, timedelta
         from collections import Counter
         
-        target_date = datetime.strptime(date, "%Y-%m-%d")
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid date format. Use YYYY-MM-DD: {e}")
+        
         next_date = target_date + timedelta(days=1)
         
         # Siparişler
@@ -364,6 +368,16 @@ async def check_date_data(date: str):
             SalesOrder.order_date >= target_date,
             SalesOrder.order_date < next_date
         ).all()
+        
+        if not orders:
+            return {
+                "date": date,
+                "message": "No data found for this date",
+                "summary": {
+                    "total_orders": 0,
+                    "total_items": 0
+                }
+            }
         
         # Status dağılımı
         status_count = Counter([o.order_status for o in orders])
@@ -384,16 +398,38 @@ async def check_date_data(date: str):
         net_order_ids = [o.id for o in net_orders]
         net_items = [i for i in items if i.order_id in net_order_ids]
         
-        # Ciro hesaplama
-        net_urun_ciro = sum(i.unit_price * i.quantity for i in net_items)
-        net_kargo = sum(o.shipping_cost for o in net_orders if o.shipping_cost)
-        net_ciro = net_urun_ciro + net_kargo
-        
-        iptal_urun = sum(i.unit_price * i.quantity for i in iptal_items)
-        iptal_kargo = sum(o.shipping_cost for o in iptal_orders if o.shipping_cost)
-        iptal_total = iptal_urun + iptal_kargo
-        
-        brut_ciro = net_ciro + iptal_total
+        # Ciro hesaplama (safe)
+        try:
+            net_urun_ciro = sum(
+                (i.unit_price or 0) * (i.quantity or 0) 
+                for i in net_items
+            )
+            net_kargo = sum(
+                o.shipping_total or 0 
+                for o in net_orders
+            )
+            net_ciro = net_urun_ciro + net_kargo
+            
+            iptal_urun = sum(
+                (i.unit_price or 0) * (i.quantity or 0) 
+                for i in iptal_items
+            )
+            iptal_kargo = sum(
+                o.shipping_total or 0 
+                for o in iptal_orders
+            )
+            iptal_total = iptal_urun + iptal_kargo
+            
+            brut_ciro = net_ciro + iptal_total
+        except Exception as calc_error:
+            return {
+                "date": date,
+                "error": f"Calculation error: {str(calc_error)}",
+                "summary": {
+                    "total_orders": len(orders),
+                    "total_items": len(items)
+                }
+            }
         
         return {
             "date": date,
@@ -418,11 +454,14 @@ async def check_date_data(date: str):
                 "expected_net_ciro": 144412.84,
                 "actual_net_ciro": round(net_ciro, 2),
                 "difference": round(net_ciro - 144412.84, 2),
-                "difference_percent": round((net_ciro - 144412.84) / 144412.84 * 100, 2)
+                "difference_percent": round((net_ciro - 144412.84) / 144412.84 * 100, 2) if net_ciro > 0 else 0
             }
         }
         
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Check date error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
     finally:
         db.close()
