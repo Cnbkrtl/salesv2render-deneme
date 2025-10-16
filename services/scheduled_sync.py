@@ -78,10 +78,19 @@ class ScheduledSyncService:
     
     def _should_run_full_sync(self, now: datetime) -> bool:
         """Tam sync çalışmalı mı?"""
-        # Bugün hiç çalışmadıysa ve saat geçtiyse
+        # ⚠️ STARTUP'TA OTOMATIK ÇALIŞMASIN!
+        # İlk sync sadece manuel olarak (admin panel) veya scheduled time'da
         if self.last_full_sync is None:
+            # Hiç çalışmamışsa, sadece şu anki saat sync time'ını geçmişse çalış
             current_time = now.time()
-            return current_time >= self.full_sync_time
+            # Ve son 30 dakika içinde olmalı (startup sonrası hemen çalışmasın)
+            if current_time >= self.full_sync_time:
+                # Sync time'dan 30 dakika geçmişse atla (ertele yarına)
+                sync_datetime = datetime.combine(now.date(), self.full_sync_time)
+                if (now - sync_datetime).total_seconds() > 1800:  # 30 dakika
+                    return False
+                return True
+            return False
         
         # Son sync bugün değilse ve saat geçtiyse
         if self.last_full_sync.date() < now.date():

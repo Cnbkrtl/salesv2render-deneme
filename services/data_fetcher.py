@@ -829,6 +829,8 @@ class DataFetcherService:
         """
         Sentos'tan ürünleri çeker ve maliyet bilgilerini günceller
         Cache'i temizler ve fresh data ile yeniden oluşturur
+        
+        ⚠️ CHECKPOINT: Her 5 sayfada bir commit (timeout önleme)
         """
         logger.info(f"🔄 Syncing products from Sentos API (max_pages={max_pages})...")
         
@@ -838,6 +840,7 @@ class DataFetcherService:
         
         page = 1
         total_synced = 0
+        checkpoint_interval = 5  # Her 5 sayfada commit
         
         while page <= max_pages:
             logger.info(f"📄 Fetching page {page}...")
@@ -856,8 +859,10 @@ class DataFetcherService:
                 self._sync_product(db, product_data)
                 total_synced += 1
             
-            db.commit()
-            logger.info(f"💾 Committed page {page} - Total synced so far: {total_synced}")
+            # ⚠️ CHECKPOINT: Her 5 sayfada commit (timeout önleme)
+            if page % checkpoint_interval == 0:
+                db.commit()
+                logger.info(f"✅ CHECKPOINT: Committed page {page} - Total: {total_synced} products")
             
             # Eğer son sayfaya ulaştıysak dur
             if page >= total_pages:
@@ -865,6 +870,10 @@ class DataFetcherService:
                 break
             
             page += 1
+        
+        # Son commit (kalan sayfalar)
+        db.commit()
+        logger.info(f"💾 Final commit - Total synced: {total_synced}")
         
         # 🆕 Sync bitti, yeni cache'i oluştur
         logger.info("💾 Rebuilding cache with fresh data...")

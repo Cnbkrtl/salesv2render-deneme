@@ -154,10 +154,12 @@ async def full_resync(
         fetcher = DataFetcherService(sentos_client=sentos)
         
         # 3. ÖNCE PRODUCTS SYNC (rate limit için önemli!)
+        # ⚠️ KÜÇÜK BATCH - Render timeout önlemek için
         logger.info("📦 Products sync başlatılıyor...")
         db = SessionLocal()
         try:
-            product_count = fetcher.sync_products_from_sentos(db, max_pages=50)
+            # Max 20 sayfa = 2000 ürün (timeout önlemek için)
+            product_count = fetcher.sync_products_from_sentos(db, max_pages=20)
             logger.info(f"✅ Products sync tamamlandı: {product_count} ürün")
         finally:
             db.close()
