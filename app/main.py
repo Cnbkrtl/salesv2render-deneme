@@ -120,6 +120,29 @@ async def startup_event():
         logger.info("OK Database initialized")
     except Exception as e:
         logger.error(f"ERROR Database initialization error: {e}")
+    
+    # Start scheduled sync service
+    try:
+        from services.scheduled_sync import get_scheduler
+        scheduler = get_scheduler()
+        await scheduler.start()
+        logger.info("✅ Scheduled sync service started")
+    except Exception as e:
+        logger.error(f"❌ Failed to start scheduler: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Application shutdown"""
+    logger.info("Shutting down...")
+    
+    # Stop scheduler
+    try:
+        from services.scheduled_sync import get_scheduler
+        scheduler = get_scheduler()
+        await scheduler.stop()
+        logger.info("Scheduler stopped")
+    except Exception as e:
+        logger.error(f"Error stopping scheduler: {e}")
 
 # Root
 @app.get("/", tags=["Root"])
@@ -136,6 +159,14 @@ async def root():
 app.include_router(health.router)  # No auth required
 app.include_router(data.router, dependencies=[Depends(verify_api_key)])
 app.include_router(analytics.router, dependencies=[Depends(verify_api_key)])
+
+# Sync Control Router
+try:
+    from app.api import sync
+    app.include_router(sync.router, dependencies=[Depends(verify_api_key)])
+    logger.info("Sync control router registered")
+except Exception as e:
+    logger.error(f"Failed to register sync router: {e}")
 
 # Product Performance Router
 if HAS_PRODUCT_PERFORMANCE and product_performance is not None:
