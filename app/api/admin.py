@@ -343,3 +343,86 @@ async def database_stats():
         
     finally:
         db.close()
+
+
+@router.get("/check-date/{date}")
+async def check_date_data(date: str):
+    """
+    Belirli bir tarihteki veriyi detaylı kontrol et
+    Format: YYYY-MM-DD
+    """
+    db = SessionLocal()
+    try:
+        from datetime import datetime, timedelta
+        from collections import Counter
+        
+        target_date = datetime.strptime(date, "%Y-%m-%d")
+        next_date = target_date + timedelta(days=1)
+        
+        # Siparişler
+        orders = db.query(SalesOrder).filter(
+            SalesOrder.order_date >= target_date,
+            SalesOrder.order_date < next_date
+        ).all()
+        
+        # Status dağılımı
+        status_count = Counter([o.order_status for o in orders])
+        
+        # Items
+        order_ids = [o.id for o in orders]
+        items = db.query(SalesOrderItem).filter(
+            SalesOrderItem.order_id.in_(order_ids)
+        ).all() if order_ids else []
+        
+        # İptal/İade
+        iptal_orders = [o for o in orders if o.order_status == 6]
+        iptal_order_ids = [o.id for o in iptal_orders]
+        iptal_items = [i for i in items if i.order_id in iptal_order_ids]
+        
+        # Net
+        net_orders = [o for o in orders if o.order_status != 6]
+        net_order_ids = [o.id for o in net_orders]
+        net_items = [i for i in items if i.order_id in net_order_ids]
+        
+        # Ciro hesaplama
+        net_urun_ciro = sum(i.unit_price * i.quantity for i in net_items)
+        net_kargo = sum(o.shipping_cost for o in net_orders if o.shipping_cost)
+        net_ciro = net_urun_ciro + net_kargo
+        
+        iptal_urun = sum(i.unit_price * i.quantity for i in iptal_items)
+        iptal_kargo = sum(o.shipping_cost for o in iptal_orders if o.shipping_cost)
+        iptal_total = iptal_urun + iptal_kargo
+        
+        brut_ciro = net_ciro + iptal_total
+        
+        return {
+            "date": date,
+            "summary": {
+                "total_orders": len(orders),
+                "total_items": len(items),
+                "iptal_orders": len(iptal_orders),
+                "net_orders": len(net_orders),
+                "net_items": len(net_items)
+            },
+            "status_distribution": dict(status_count),
+            "revenue": {
+                "net_urun_ciro": round(net_urun_ciro, 2),
+                "net_kargo": round(net_kargo, 2),
+                "net_ciro": round(net_ciro, 2),
+                "iptal_urun": round(iptal_urun, 2),
+                "iptal_kargo": round(iptal_kargo, 2),
+                "iptal_total": round(iptal_total, 2),
+                "brut_ciro": round(brut_ciro, 2)
+            },
+            "comparison": {
+                "expected_net_ciro": 144412.84,
+                "actual_net_ciro": round(net_ciro, 2),
+                "difference": round(net_ciro - 144412.84, 2),
+                "difference_percent": round((net_ciro - 144412.84) / 144412.84 * 100, 2)
+            }
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+    finally:
+        db.close()
