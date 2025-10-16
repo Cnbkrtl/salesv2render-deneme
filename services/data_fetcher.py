@@ -241,6 +241,25 @@ class DataFetcherService:
                 if idx % 50 == 0:
                     logger.info(f"Processing order {idx}/{len(unique_orders)}...")
                 
+                # 🆕 TARİH FİLTRELEME - Sadece belirtilen tarih aralığındaki siparişleri kaydet
+                order_date_str = order.get('order_date', '')
+                try:
+                    order_date = datetime.strptime(order_date_str, "%Y-%m-%d %H:%M:%S")
+                    order_date_only = order_date.date()
+                    start_date_only = start_dt.date()
+                    end_date_only = end_dt.date()
+                    
+                    # Eğer sipariş tarihi aralığın dışındaysa, atla
+                    if order_date_only < start_date_only or order_date_only > end_date_only:
+                        logger.warning(
+                            f"⚠️ DATE OUT OF RANGE: Order {order['id']} date={order_date_only} "
+                            f"is outside {start_date_only} - {end_date_only}, skipping"
+                        )
+                        continue
+                except Exception as date_error:
+                    logger.error(f"❌ DATE PARSE ERROR: Order {order['id']}, date={order_date_str}, error={date_error}")
+                    continue
+                
                 # RETAIL FİLTRESİ - Sadece ECOMMERCE
                 source = order.get('source', '').upper()
                 if source == SalesChannel.RETAIL.value:
@@ -637,6 +656,23 @@ class DataFetcherService:
         is_new_item = False  # Track if this is a new insert
         
         if not sales_item:
+            # 🆕 DUPLICATE CHECK - Aynı order_id + SKU var mı?
+            # unique_key dışında da kontrol et (çift koruma)
+            duplicate_check = db.query(SalesOrderItem).filter(
+                SalesOrderItem.order_id == sales_order.id,
+                SalesOrderItem.product_sku == product_sku,
+                SalesOrderItem.quantity == quantity,
+                SalesOrderItem.unit_price == unit_price
+            ).first()
+            
+            if duplicate_check:
+                logger.warning(
+                    f"⚠️ DUPLICATE DETECTED: order_id={sales_order.id}, SKU={product_sku}, "
+                    f"existing_unique_key={duplicate_check.unique_key}, "
+                    f"new_unique_key={unique_key}, SKIPPING INSERT"
+                )
+                return False  # Duplicate, don't count as new
+            
             # ✅ NEW INSERT
             sales_item = SalesOrderItem(
                 order_id=sales_order.id,
@@ -669,6 +705,20 @@ class DataFetcherService:
             # 🔄 UPDATE EXISTING - Aynı sipariş farklı status'larda gelebilir
             old_amount = sales_item.item_amount
             old_status = sales_item.item_status
+            old_quantity = sales_item.quantity
+            
+            # 🆕 UPDATE KONTROLÜ - Sadece gerçekten değişmişse güncelle
+            has_changes = (
+                sales_item.item_status != item_status or
+                sales_item.quantity != quantity or
+                abs(sales_item.unit_price - unit_price) > 0.01 or
+                abs(sales_item.item_amount - item_amount) > 0.01 or
+                sales_item.is_cancelled != is_cancelled
+            )
+            
+            if not has_changes:
+                logger.debug(f"⏭️ SKIP UPDATE: unique_key={unique_key}, no changes")
+                return False  # No changes, don't count
             
             # Update existing
             sales_item.item_status = item_status
@@ -686,6 +736,11 @@ class DataFetcherService:
                 logger.warning(
                     f"⚠️ AMOUNT CHANGED: unique_key={unique_key}, "
                     f"old={old_amount:.2f} → new={item_amount:.2f}"
+                )
+            if old_quantity != quantity:
+                logger.warning(
+                    f"⚠️ QUANTITY CHANGED: unique_key={unique_key}, "
+                    f"old={old_quantity} → new={quantity}"
                 )
             if old_status != item_status:
                 logger.info(
