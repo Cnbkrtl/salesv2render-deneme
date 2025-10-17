@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     sentos_api_secret: str
     sentos_cookie: Optional[str] = None
     
+    # Trendyol API
+    trendyol_api_url: str = "https://apigw.trendyol.com"
+    trendyol_supplier_id: Optional[str] = None
+    trendyol_api_key: Optional[str] = None
+    trendyol_api_secret: Optional[str] = None
+    
     # Database
     database_url: str = "sqlite:///./sales_analytics_v2.db"
     

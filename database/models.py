@@ -2,7 +2,7 @@
 Database Models - NORMALIZE VE OPTİMİZE EDİLMİŞ
 """
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Text, Boolean, Index
+    Column, Integer, BigInteger, String, Float, DateTime, Text, Boolean, Index
 )
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -55,6 +55,10 @@ class SalesOrder(Base):
     sentos_order_id = Column(Integer, unique=True, index=True, nullable=False)
     order_code = Column(String(100), index=True)
     
+    # Trendyol-specific IDs (nullable for non-Trendyol orders)
+    trendyol_shipment_package_id = Column(BigInteger, unique=True, index=True, nullable=True)
+    trendyol_order_number = Column(String(50), index=True, nullable=True)
+    
     # Order metadata
     order_date = Column(DateTime, nullable=False, index=True)
     marketplace = Column(String(50), nullable=False, index=True)
@@ -102,6 +106,9 @@ class SalesOrderItem(Base):
     order_id = Column(Integer, nullable=False, index=True)  # sales_orders.id ile join
     sentos_order_id = Column(Integer, nullable=False, index=True)  # Referans
     sentos_item_id = Column(Integer, index=True)
+    
+    # Trendyol-specific ID (nullable for non-Trendyol items)
+    trendyol_order_line_id = Column(BigInteger, index=True, nullable=True)
     
     # Unique identifier
     unique_key = Column(String(200), unique=True, index=True, nullable=False)  # order_id_item_id
