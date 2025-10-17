@@ -250,13 +250,27 @@ class TrendyolDataFetcherService:
         
         for line in lines:
             try:
+                order_line_id = line.get('id')
+                unique_key = f"trendyol_{order.trendyol_shipment_package_id}_{order_line_id}"
+                
+                # Check if already exists
+                existing = db.query(SalesOrderItem).filter_by(unique_key=unique_key).first()
+                if existing:
+                    logger.debug(f"⏭️  Item already exists: {unique_key}")
+                    continue
+                
                 item = self._create_trendyol_order_item(db, order, line)
                 if item:
                     db.add(item)
                     items_count += 1
             except Exception as e:
-                logger.error(f"❌ Error creating item for line {line.get('id')}: {e}")
-                logger.error(f"   Line data: {line}")
+                # Check for unique constraint violation
+                error_msg = str(e).lower()
+                if 'unique' in error_msg or 'duplicate' in error_msg:
+                    logger.warning(f"⚠️ Duplicate item skipped (line {line.get('id')}): {line.get('merchantSku', 'N/A')}")
+                else:
+                    logger.error(f"❌ Error creating item for line {line.get('id')}: {e}")
+                    logger.error(f"   Line data: {line}")
                 continue
         
         return items_count

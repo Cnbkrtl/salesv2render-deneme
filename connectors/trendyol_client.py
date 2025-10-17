@@ -229,15 +229,17 @@ class TrendyolAPIClient:
         # Tüm statüler (varsayılan)
         if statuses is None:
             statuses = [
-                'Created',      # Gönderime hazır
-                'Picking',      # Toplanıyor
-                'Invoiced',     # Faturalandı
-                'Shipped',      # Kargoya verildi
-                'Delivered',    # Teslim edildi
-                'Cancelled',    # İptal
-                'UnSupplied',   # Tedarik edilemedi
-                'UnDelivered',  # Teslim edilemedi
-                'Returned'      # İade
+                'Created',           # Gönderime hazır
+                'Picking',           # Toplanıyor
+                'Invoiced',          # Faturalandı
+                'Shipped',           # Kargoya verildi
+                'Delivered',         # Teslim edildi
+                'Cancelled',         # İptal edildi
+                'UnSupplied',        # Tedarik edilemedi (iptal alt kategorisi)
+                'UnDelivered',       # Teslim edilemedi
+                'Returned',          # İade edildi (müşteriye ulaşmayan ve geri dönen)
+                'UnPacked',          # Bölünmüş paketler (kısmi iptal sonrası yeni paket)
+                'AtCollectionPoint'  # PUDO teslimat noktasında
             ]
         
         all_orders = []
