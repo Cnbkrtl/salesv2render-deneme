@@ -82,13 +82,29 @@ class TrendyolDataFetcherService:
                 statuses=statuses
             )
             
-            logger.info(f"✅ Fetched {len(packages)} Trendyol packages")
+            logger.info(f"✅ Fetched {len(packages)} Trendyol packages from API")
+            
+            # ⚠️ ÖNEMLİ: API'deki tarih filtresi PackageLastModifiedDate kullanıyor
+            # Biz orderDate (sipariş oluşturma tarihi) ile filtrelemek istiyoruz
+            filtered_packages = []
+            for package in packages:
+                order_date_ms = package.get('orderDate', 0)
+                if order_date_ms:
+                    order_date = datetime.fromtimestamp(order_date_ms / 1000)
+                    # Tarih aralığında mı kontrol et
+                    if start_dt <= order_date <= end_dt:
+                        filtered_packages.append(package)
+                else:
+                    # orderDate yoksa ekle (güvenli taraf)
+                    filtered_packages.append(package)
+            
+            logger.info(f"✅ Filtered to {len(filtered_packages)} packages by orderDate (was {len(packages)})")
             
             # Database'e kaydet
             orders_count = 0
             items_count = 0
             
-            for package in packages:
+            for package in filtered_packages:
                 try:
                     items = self._process_and_store_trendyol_package(db, package)
                     orders_count += 1
