@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { syncProducts, fetchSalesData, getSyncStatus, triggerFullSync, triggerLiveSync, type SyncStatus } from '../lib/api-service';
-import { Database, Download, Settings as SettingsIcon, Clock, RefreshCw } from 'lucide-react';
+import { syncProducts, fetchSalesData, getSyncStatus, triggerFullSync, triggerLiveSync, syncTrendyolOrders, testTrendyolConnection, type SyncStatus, type TrendyolSyncResponse, type TrendyolTestConnectionResponse } from '../lib/api-service';
+import { Database, Download, Settings as SettingsIcon, Clock, RefreshCw, ShoppingBag } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 import { tr } from 'date-fns/locale';
 
@@ -18,6 +18,12 @@ const Settings: React.FC = () => {
   // Sync status state
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncLoading, setSyncLoading] = useState(false);
+
+  // Trendyol state
+  const [trendyolSyncing, setTrendyolSyncing] = useState(false);
+  const [trendyolDays, setTrendyolDays] = useState<number>(7);
+  const [trendyolConnectionStatus, setTrendyolConnectionStatus] = useState<TrendyolTestConnectionResponse | null>(null);
+  const [trendyolLastSync, setTrendyolLastSync] = useState<string | null>(null);
 
   // Fetch sync status on mount and every 30 seconds
   useEffect(() => {
@@ -125,6 +131,46 @@ const Settings: React.FC = () => {
       setError((err as any).response?.data?.detail || 'Veri çekme başarısız');
     } finally {
       setFetching(false);
+    }
+  };
+
+  // Trendyol handlers
+  const handleTestTrendyolConnection = async () => {
+    try {
+      const result = await testTrendyolConnection();
+      setTrendyolConnectionStatus(result);
+      if (result.status === 'success') {
+        setSuccess('✅ Trendyol API bağlantısı başarılı!');
+      } else {
+        setError(`⚠️ ${result.message}`);
+      }
+      setTimeout(() => {
+        setSuccess(null);
+        setError(null);
+      }, 5000);
+    } catch (err) {
+      setError('Trendyol bağlantı testi başarısız');
+      setTimeout(() => setError(null), 5000);
+    }
+  };
+
+  const handleSyncTrendyol = async () => {
+    setTrendyolSyncing(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const result = await syncTrendyolOrders(trendyolDays);
+      setSuccess(`✅ ${result.orders_fetched} Trendyol siparişi senkronize edildi! (${result.items_stored} item)`);
+      setTrendyolLastSync(result.timestamp);
+      setTimeout(() => setSuccess(null), 5000);
+    } catch (err) {
+      const errorMessage = (err as any).response?.data?.detail || 
+                          (err as any).message || 
+                          'Trendyol senkronizasyonu başarısız';
+      setError(errorMessage);
+      setTimeout(() => setError(null), 5000);
+    } finally {
+      setTrendyolSyncing(false);
     }
   };
 
@@ -249,6 +295,125 @@ const Settings: React.FC = () => {
                     ⚠️ Senkronizasyon şu anda çalışıyor, lütfen bekleyin...
                   </p>
                 )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Trendyol Sync Card */}
+        <Card className="border-2 border-orange-200 dark:border-orange-800">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShoppingBag className="h-5 w-5 text-orange-600" />
+              Trendyol Senkronizasyonu
+            </CardTitle>
+            <CardDescription>
+              Trendyol siparişlerini direkt Trendyol API'sinden çekin
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Info Box */}
+              <div className="bg-orange-50 dark:bg-orange-950 p-4 rounded-md border border-orange-200 dark:border-orange-800">
+                <h4 className="font-medium mb-2 text-orange-900 dark:text-orange-100">🎯 Direkt Entegrasyon</h4>
+                <p className="text-sm text-orange-800 dark:text-orange-200 mb-2">
+                  Trendyol siparişleri artık <strong>doğrudan Trendyol API'sinden</strong> çekiliyor. 
+                  Sentos üzerinden gelen Trendyol verileri otomatik olarak filtreleniyor.
+                </p>
+                <ul className="text-sm text-orange-800 dark:text-orange-200 space-y-1 list-disc list-inside">
+                  <li><strong>Daha güncel veriler:</strong> Trendyol'dan direkt veri akışı</li>
+                  <li><strong>Otomatik sync:</strong> Arka planda günlük ve canlı olarak çalışır</li>
+                  <li><strong>Manuel kontrol:</strong> İstediğiniz zaman manuel sync yapabilirsiniz</li>
+                </ul>
+              </div>
+
+              {/* Connection Status */}
+              {trendyolConnectionStatus && (
+                <div className={`p-4 rounded-md border ${
+                  trendyolConnectionStatus.status === 'success' 
+                    ? 'bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800'
+                    : 'bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800'
+                }`}>
+                  <h4 className={`font-medium mb-2 ${
+                    trendyolConnectionStatus.status === 'success'
+                      ? 'text-green-900 dark:text-green-100'
+                      : 'text-red-900 dark:text-red-100'
+                  }`}>
+                    {trendyolConnectionStatus.status === 'success' ? '✅ Bağlantı Başarılı' : '❌ Bağlantı Hatası'}
+                  </h4>
+                  <p className={`text-sm ${
+                    trendyolConnectionStatus.status === 'success'
+                      ? 'text-green-800 dark:text-green-200'
+                      : 'text-red-800 dark:text-red-200'
+                  }`}>
+                    {trendyolConnectionStatus.message}
+                  </p>
+                  {trendyolConnectionStatus.test_query && (
+                    <p className="text-xs mt-2 text-green-700 dark:text-green-300">
+                      Toplam {trendyolConnectionStatus.test_query.total_elements} sipariş bulundu
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Days Selector */}
+              <div>
+                <label className="text-sm font-medium mb-2 block">Son Kaç Günün Verisi Çekilecek?</label>
+                <select
+                  value={trendyolDays}
+                  onChange={(e) => setTrendyolDays(Number(e.target.value))}
+                  className="w-full px-3 py-2 border rounded-md"
+                  disabled={trendyolSyncing}
+                >
+                  <option value={1}>Son 1 gün</option>
+                  <option value={3}>Son 3 gün</option>
+                  <option value={7}>Son 7 gün (önerilen)</option>
+                  <option value={14}>Son 14 gün</option>
+                  <option value={30}>Son 30 gün</option>
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Otomatik sync her gün son 7 günü çeker. Manuel sync için farklı aralık seçebilirsiniz.
+                </p>
+              </div>
+
+              {/* Last Sync Info */}
+              {trendyolLastSync && (
+                <div className="bg-muted/50 p-3 rounded-md">
+                  <p className="text-sm text-muted-foreground">
+                    <strong>Son Sync:</strong> {formatSyncTime(trendyolLastSync)}
+                  </p>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="grid gap-2 md:grid-cols-2">
+                <Button
+                  onClick={handleTestTrendyolConnection}
+                  disabled={trendyolSyncing}
+                  variant="outline"
+                  className="w-full"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Bağlantıyı Test Et
+                </Button>
+                <Button
+                  onClick={handleSyncTrendyol}
+                  disabled={trendyolSyncing}
+                  className="w-full bg-orange-600 hover:bg-orange-700"
+                >
+                  <ShoppingBag className={`mr-2 h-4 w-4 ${trendyolSyncing ? 'animate-spin' : ''}`} />
+                  {trendyolSyncing ? 'Senkronize ediliyor...' : `Trendyol Siparişlerini Çek`}
+                </Button>
+              </div>
+
+              {/* Warning */}
+              <div className="bg-yellow-50 dark:bg-yellow-950 p-4 rounded-md border border-yellow-200 dark:border-yellow-800">
+                <h4 className="font-medium mb-2 text-yellow-900 dark:text-yellow-100">⚠️ Önemli</h4>
+                <ul className="text-sm text-yellow-800 dark:text-yellow-200 space-y-1 list-disc list-inside">
+                  <li>Trendyol credentials (TRENDYOL_SUPPLIER_ID, TRENDYOL_API_SECRET) .env dosyasında tanımlanmalı</li>
+                  <li>Credentials eksikse otomatik sync çalışmaz</li>
+                  <li>Bağlantı testi ile credentials'ları kontrol edebilirsiniz</li>
+                </ul>
               </div>
             </div>
           </CardContent>

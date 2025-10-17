@@ -169,3 +169,44 @@ export const triggerLiveSync = async (): Promise<{status: string; message: strin
   const response = await apiClient.post('/api/sync/trigger/live');
   return response.data;
 };
+
+// Trendyol API
+
+export interface TrendyolSyncResponse {
+  status: string;
+  orders_fetched: number;
+  items_stored: number;
+  duration_seconds: number;
+  date_range: {
+    start_date: string;
+    end_date: string;
+    days: number;
+  };
+  timestamp: string;
+}
+
+export interface TrendyolTestConnectionResponse {
+  status: string;
+  message: string;
+  supplier_id?: string;
+  has_supplier_id?: boolean;
+  has_api_secret?: boolean;
+  test_query?: {
+    page: number;
+    size: number;
+    total_elements: number;
+  };
+  timestamp: string;
+}
+
+// Sync Trendyol orders
+export const syncTrendyolOrders = async (days: number = 7): Promise<TrendyolSyncResponse> => {
+  const response = await apiClient.post(`/api/trendyol/sync?days=${days}`);
+  return response.data;
+};
+
+// Test Trendyol connection
+export const testTrendyolConnection = async (): Promise<TrendyolTestConnectionResponse> => {
+  const response = await apiClient.get('/api/trendyol/test-connection');
+  return response.data;
+};
