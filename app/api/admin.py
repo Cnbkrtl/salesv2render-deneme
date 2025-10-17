@@ -160,6 +160,8 @@ async def _run_full_resync_task(start_date: str, end_date: str, clear_first: boo
     resync_status["error"] = None
     resync_status["progress"] = "Başlatılıyor..."
     
+    scheduler = None
+    
     try:
         logger.info(f"🔄 FULL RESYNC başlatılıyor: {start_date} - {end_date}")
         resync_status["progress"] = "Scheduler duraklatılıyor..."
@@ -170,62 +172,64 @@ async def _run_full_resync_task(start_date: str, end_date: str, clear_first: boo
         scheduler.pause()
         logger.warning("⏸️  SCHEDULER PAUSED - Full resync in progress")
         
-        try:
-            # 2. Temizle (istenirse)
-            if clear_first:
-                resync_status["progress"] = "Database temizleniyor..."
-                logger.info("🗑️  Mevcut veriler temizleniyor...")
-                
-                # Async olarak çalıştır (thread pool'da)
-                await asyncio.to_thread(_clear_database, start_date, end_date)
+        # 2. Temizle (istenirse)
+        if clear_first:
+            resync_status["progress"] = "Database temizleniyor..."
+            logger.info("🗑️  Mevcut veriler temizleniyor...")
             
-            # 3. Products sync (async)
-            resync_status["progress"] = "Products sync yapılıyor..."
-            logger.info("📦 Products sync başlatılıyor...")
-            
-            product_count = await asyncio.to_thread(_sync_products)
-            logger.info(f"✅ Products sync tamamlandı: {product_count} ürün")
-            
-            # 4. Orders sync (async)
-            resync_status["progress"] = "Orders sync yapılıyor..."
-            logger.info(f"📊 Orders sync başlatılıyor: {start_date} - {end_date}")
-            
-            result = await asyncio.to_thread(
-                _sync_orders, 
-                start_date, 
-                end_date
-            )
-            
-            logger.info(f"✅ FULL RESYNC tamamlandı!")
-            resync_status["progress"] = "Tamamlandı! ✅"
-            resync_status["result"] = {
-                "products_synced": product_count,
-                "orders_synced": result.get("orders_fetched", 0),
-                "items_synced": result.get("items_stored", 0),
-                "duration_seconds": result.get("duration_seconds", 0)
-            }
+            # Async olarak çalıştır (thread pool'da)
+            await asyncio.to_thread(_clear_database, start_date, end_date)
         
-        finally:
-            # 5. SCHEDULER'I YENİDEN BAŞLAT!
-            scheduler.resume()
-            logger.info("▶️  SCHEDULER RESUMED - Full resync completed")
+        # 3. Products sync (async)
+        resync_status["progress"] = "Products sync yapılıyor..."
+        logger.info("📦 Products sync başlatılıyor...")
+        
+        product_count = await asyncio.to_thread(_sync_products)
+        logger.info(f"✅ Products sync tamamlandı: {product_count} ürün")
+        
+        # 4. Orders sync (async)
+        resync_status["progress"] = "Orders sync yapılıyor..."
+        logger.info(f"📊 Orders sync başlatılıyor: {start_date} - {end_date}")
+        
+        result = await asyncio.to_thread(
+            _sync_orders, 
+            start_date, 
+            end_date
+        )
+        
+        logger.info(f"✅ FULL RESYNC tamamlandı!")
+        resync_status["progress"] = "Tamamlandı! ✅"
+        resync_status["result"] = {
+            "products_synced": product_count,
+            "orders_synced": result.get("orders_fetched", 0),
+            "items_synced": result.get("items_stored", 0),
+            "duration_seconds": result.get("duration_seconds", 0)
+        }
     
     except Exception as e:
-        # HATA DURUMUNDA DA SCHEDULER'I BAŞLAT!
-        try:
-            from services.scheduled_sync import get_scheduler
-            scheduler = get_scheduler()
-            scheduler.resume()
-            logger.warning("▶️  SCHEDULER RESUMED after error")
-        except:
-            pass
-        
         logger.error(f"❌ Full resync hatası: {e}", exc_info=True)
         resync_status["progress"] = f"HATA: {str(e)}"
         resync_status["error"] = str(e)
     
     finally:
+        # 🆕 HER DURUMDA SCHEDULER'I YENİDEN BAŞLAT!
         resync_status["running"] = False
+        
+        if scheduler:
+            try:
+                scheduler.resume()
+                logger.info("▶️  SCHEDULER RESUMED - Full resync completed")
+            except Exception as resume_error:
+                logger.error(f"❌ Scheduler resume hatası: {resume_error}")
+        else:
+            # Scheduler alınamadıysa tekrar dene
+            try:
+                from services.scheduled_sync import get_scheduler
+                scheduler = get_scheduler()
+                scheduler.resume()
+                logger.warning("▶️  SCHEDULER RESUMED (fallback)")
+            except Exception as fallback_error:
+                logger.error(f"❌ Scheduler resume fallback hatası: {fallback_error}")
 
 
 def _clear_database(start_date: str, end_date: str):
