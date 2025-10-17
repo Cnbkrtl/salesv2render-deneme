@@ -280,7 +280,11 @@ def _sync_products():
 
 
 def _sync_orders(start_date: str, end_date: str):
-    """Sync helper: Orders sync"""
+    """Sync helper: Orders sync (Sentos + Trendyol)"""
+    from connectors.trendyol_client import TrendyolAPIClient
+    from services.trendyol_data_fetcher import TrendyolDataFetcher
+    
+    # 1. SENTOS SYNC
     sentos = SentosAPIClient(
         api_url=settings.sentos_api_url,
         api_key=settings.sentos_api_key,
@@ -288,12 +292,34 @@ def _sync_orders(start_date: str, end_date: str):
     )
     fetcher = DataFetcherService(sentos_client=sentos)
     
-    return fetcher.fetch_and_store_orders(
+    sentos_result = fetcher.fetch_and_store_orders(
         start_date=start_date,
         end_date=end_date,
         marketplace=None,
         clear_existing=False
     )
+    
+    # 2. TRENDYOL SYNC
+    trendyol = TrendyolAPIClient(
+        api_url=settings.trendyol_api_url,
+        supplier_id=settings.trendyol_supplier_id,
+        api_key=settings.trendyol_api_key,
+        api_secret=settings.trendyol_api_secret
+    )
+    trendyol_fetcher = TrendyolDataFetcher(trendyol_client=trendyol)
+    
+    trendyol_result = trendyol_fetcher.fetch_and_store_trendyol_orders(
+        start_date=start_date,
+        end_date=end_date,
+        clear_existing=False
+    )
+    
+    # Birleştir
+    return {
+        'sentos': sentos_result,
+        'trendyol': trendyol_result,
+        'total_orders': sentos_result.get('orders_count', 0) + trendyol_result.get('orders_fetched', 0)
+    }
 
 
 @router.get("/resync-status")

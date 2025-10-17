@@ -905,7 +905,9 @@ class DataFetcherService:
             ).count()
             
             # Database'deki item sayısı
-            db_items = db.query(SalesOrderItem).join(SalesOrder).filter(
+            db_items = db.query(SalesOrderItem).select_from(SalesOrderItem).join(
+                SalesOrder, SalesOrderItem.order_id == SalesOrder.id
+            ).filter(
                 and_(
                     SalesOrder.order_date >= start_dt,
                     SalesOrder.order_date < end_dt + timedelta(days=1)
@@ -928,12 +930,13 @@ class DataFetcherService:
                 )
             
             # Duplicate unique_key kontrolü
-            duplicate_check = db.execute("""
+            from sqlalchemy import text
+            duplicate_check = db.execute(text("""
                 SELECT unique_key, COUNT(*) as cnt
                 FROM sales_order_items
                 GROUP BY unique_key
                 HAVING COUNT(*) > 1
-            """).fetchall()
+            """)).fetchall()
             
             if duplicate_check:
                 warnings.append(

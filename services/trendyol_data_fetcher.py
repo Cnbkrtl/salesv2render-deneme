@@ -55,9 +55,16 @@ class TrendyolDataFetcherService:
         db = SessionLocal()
         
         try:
-            # Tarihleri parse et
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            # Tarihleri parse et (string veya datetime kabul et)
+            if isinstance(start_date, str):
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            else:
+                start_dt = start_date
+            
+            if isinstance(end_date, str):
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            else:
+                end_dt = end_date
             
             # Mevcut Trendyol verilerini temizle (istenirse)
             if clear_existing:
