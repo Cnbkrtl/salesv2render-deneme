@@ -13,7 +13,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.core import get_settings
-from app.api import health, data, analytics, admin, trendyol
+from app.api import health, data, analytics, admin, trendyol, products
 
 # Import product_performance early
 try:
@@ -187,6 +187,8 @@ except Exception as e:
 app.include_router(data.router, dependencies=[Depends(verify_api_key)])
 app.include_router(analytics.router, dependencies=[Depends(verify_api_key)])
 app.include_router(trendyol.router, dependencies=[Depends(verify_api_key)])
+app.include_router(products.router, dependencies=[Depends(verify_api_key)])  # 🆕 Products API
+logger.info("✅ Products router registered (protected with API key)")
 
 # Admin Router (⚠️ GÜVENLI! API key gerekli)
 app.include_router(admin.router, dependencies=[Depends(verify_api_key)])

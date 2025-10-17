@@ -1072,8 +1072,10 @@ class DataFetcherService:
         # Ürünü bul veya oluştur
         product = db.query(Product).filter(Product.sku == sku).first()
         
-        # Extract image - En iyi görseli seç
-        image_url = None
+        # 🆕 Extract ALL images - JSON array olarak sakla
+        image_urls = []
+        image_url = None  # Backward compatibility için ilk resim
+        
         if 'images' in product_data and isinstance(product_data['images'], list) and len(product_data['images']) > 0:
             # Önce 'order' field'ına göre sırala (varsa)
             sorted_images = sorted(
@@ -1081,7 +1083,13 @@ class DataFetcherService:
                 key=lambda x: x.get('order', 999) if isinstance(x, dict) else 999
             )
             
-            # İlk görseli al (ölçü tablosu pattern'i varsa atla)
+            # Ölçü tablosu pattern'leri
+            skip_patterns = [
+                'olcu', 'ölçü', 'size-chart', 'sizechart',
+                'beden-tablosu', 'bedentablosu', 'size-guide'
+            ]
+            
+            # Tüm görselleri topla (ölçü tablosu hariç)
             for img in sorted_images:
                 img_url = None
                 if isinstance(img, dict):
@@ -1089,25 +1097,25 @@ class DataFetcherService:
                 elif isinstance(img, str):
                     img_url = img
                 
-                # Ölçü tablosu kontrolü (sadece spesifik pattern'ler)
+                # Ölçü tablosu kontrolü
                 if img_url:
-                    filename = img_url.split('/')[-1].lower()  # Sadece dosya adı
-                    # Ölçü tablosu pattern'leri: olcu, size-chart, beden-tablosu vb.
-                    skip_patterns = [
-                        'olcu', 'ölçü', 'size-chart', 'sizechart',
-                        'beden-tablosu', 'bedentablosu', 'size-guide'
-                    ]
+                    filename = img_url.split('/')[-1].lower()
                     if not any(pattern in filename for pattern in skip_patterns):
-                        image_url = img_url
-                        break  # İlk uygun görseli al
+                        image_urls.append(img_url)
+                        if not image_url:  # İlk uygun görsel
+                            image_url = img_url
             
             # Eğer hiçbiri uygun değilse, yine de ilk görseli al
-            if not image_url and len(sorted_images) > 0:
+            if not image_urls and len(sorted_images) > 0:
                 first_image = sorted_images[0]
                 if isinstance(first_image, dict):
-                    image_url = first_image.get('url') or first_image.get('image_url')
+                    img_url = first_image.get('url') or first_image.get('image_url')
                 elif isinstance(first_image, str):
-                    image_url = first_image
+                    img_url = first_image
+                
+                if img_url:
+                    image_urls.append(img_url)
+                    image_url = img_url
         
         if not product:
             product = Product(
@@ -1122,10 +1130,13 @@ class DataFetcherService:
                 purchase_price_with_vat=purchase_price_with_vat,
                 sale_price=parse_turkish_price(product_data.get('sale_price', 0))
             )
+            # 🆕 Set images array
+            product.set_images(image_urls)
             db.add(product)
         else:
             # Update
             product.image = image_url
+            product.set_images(image_urls)  # 🆕 Update images array
             product.purchase_price = purchase_price
             product.vat_rate = vat_rate
             product.purchase_price_with_vat = purchase_price_with_vat

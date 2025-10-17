@@ -4,8 +4,10 @@ Database Models - NORMALIZE VE OPTİMİZE EDİLMİŞ
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Float, DateTime, Text, Boolean, Index
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from datetime import datetime
+import json
 
 from .connection import Base
 
@@ -24,7 +26,8 @@ class Product(Base):
     name = Column(String(500))
     brand = Column(String(200))
     barcode = Column(String(100), index=True)
-    image = Column(String(500))  # Ürün görseli URL
+    image = Column(String(500))  # Ürün görseli URL (deprecated, use images)
+    images = Column(Text, default='[]')  # JSON array of image URLs (PostgreSQL: JSONB, SQLite: TEXT)
     
     # Cost information - MALİYET BİLGİSİ
     purchase_price = Column(Float, default=0.0)  # KDV'siz alış fiyatı
@@ -42,6 +45,31 @@ class Product(Base):
         Index('idx_sku_lookup', 'sku'),
         Index('idx_barcode_lookup', 'barcode'),
     )
+    
+    def get_images(self) -> list:
+        """Get images as Python list"""
+        if not self.images:
+            return []
+        try:
+            if isinstance(self.images, str):
+                return json.loads(self.images)
+            return self.images if isinstance(self.images, list) else []
+        except (json.JSONDecodeError, TypeError):
+            return []
+    
+    def set_images(self, image_urls: list):
+        """Set images from Python list"""
+        if isinstance(image_urls, list):
+            self.images = json.dumps(image_urls)
+        else:
+            self.images = '[]'
+    
+    def get_primary_image(self) -> str:
+        """Get first image or fallback to legacy image field"""
+        images = self.get_images()
+        if images:
+            return images[0]
+        return self.image or ''
 
 
 class SalesOrder(Base):
