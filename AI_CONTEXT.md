@@ -503,11 +503,16 @@ CREATE INDEX idx_trendyol_order_line ON sales_order_items(trendyol_order_line_id
 **Environment Variables (required):**
 ```bash
 # Trendyol API Credentials
-TRENDYOL_SUPPLIER_ID=your_supplier_id      # Required
-TRENDYOL_API_KEY=your_api_key              # Optional (for future use)
-TRENDYOL_API_SECRET=your_api_secret        # Required
+TRENDYOL_SUPPLIER_ID=your_supplier_id      # Required - URL'lerde kullanılır
+TRENDYOL_API_KEY=your_api_key              # Required - Authentication için (Supplier ID ile FARKLI!)
+TRENDYOL_API_SECRET=your_api_secret        # Required - Authentication için
 TRENDYOL_API_URL=https://apigw.trendyol.com  # Default
 ```
+
+**⚠️ ÖNEMLİ:** `TRENDYOL_API_KEY` ve `TRENDYOL_SUPPLIER_ID` farklı değerlerdir! 
+- **Supplier ID:** URL'lerde seller ID olarak kullanılır (örn: `/sellers/153517/orders`)
+- **API Key:** Basic Auth'da username olarak kullanılır (örn: `1atoDXbBs329vctKfu7V`)
+- **API Secret:** Basic Auth'da password olarak kullanılır
 
 **Config File** (`app/core/config.py`):
 ```python

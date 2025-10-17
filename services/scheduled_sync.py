@@ -173,7 +173,7 @@ class ScheduledSyncService:
             # TRENDYOL SYNC (direkt API)
             trendyol_orders = 0
             trendyol_items = 0
-            if self.settings.trendyol_supplier_id and self.settings.trendyol_api_secret:
+            if self.settings.trendyol_supplier_id and self.settings.trendyol_api_key and self.settings.trendyol_api_secret:
                 try:
                     logger.info("🟠 Trendyol sync başlatılıyor (direkt API)...")
                     trendyol_client = TrendyolAPIClient(
@@ -242,7 +242,7 @@ class ScheduledSyncService:
             
             # TRENDYOL SYNC (direkt API)
             trendyol_orders = 0
-            if self.settings.trendyol_supplier_id and self.settings.trendyol_api_secret:
+            if self.settings.trendyol_supplier_id and self.settings.trendyol_api_key and self.settings.trendyol_api_secret:
                 try:
                     logger.info("🟠 Trendyol canlı sync...")
                     trendyol_client = TrendyolAPIClient(

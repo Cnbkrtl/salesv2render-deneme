@@ -42,14 +42,17 @@ class TrendyolAPIClient:
         """
         self.api_url = api_url.rstrip('/')
         self.supplier_id = supplier_id
-        self.api_key = api_key or supplier_id  # API key genelde supplier ID ile aynı
+        self.api_key = api_key  # API Key (authentication için gerekli)
         self.api_secret = api_secret
         self.timeout = timeout
         self.session = requests.Session()
         
-        # Basic Auth
+        # Basic Auth - API Key kullanılmalı (Supplier ID değil!)
         if self.api_key and self.api_secret:
             self.session.auth = (self.api_key, self.api_secret)
+        elif self.api_secret:
+            # Fallback: Sadece API secret varsa hata ver
+            raise ValueError("TRENDYOL_API_KEY gerekli! (Supplier ID ile aynı değil)")
         
         # Headers
         self.session.headers.update({

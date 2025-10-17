@@ -32,11 +32,19 @@ async def sync_trendyol_orders(
     try:
         settings = get_settings()
         
-        # Trendyol credentials kontrolü
-        if not settings.trendyol_supplier_id or not settings.trendyol_api_secret:
+        # Trendyol credentials kontrolü - 3 bilgi de gerekli
+        if not settings.trendyol_supplier_id or not settings.trendyol_api_key or not settings.trendyol_api_secret:
+            missing = []
+            if not settings.trendyol_supplier_id:
+                missing.append("TRENDYOL_SUPPLIER_ID")
+            if not settings.trendyol_api_key:
+                missing.append("TRENDYOL_API_KEY")
+            if not settings.trendyol_api_secret:
+                missing.append("TRENDYOL_API_SECRET")
+            
             raise HTTPException(
                 status_code=400,
-                detail="Trendyol API credentials eksik. TRENDYOL_SUPPLIER_ID ve TRENDYOL_API_SECRET gerekli."
+                detail=f"Trendyol API credentials eksik: {', '.join(missing)}"
             )
         
         start_time = datetime.now()
@@ -102,12 +110,21 @@ async def test_trendyol_connection() -> Dict[str, Any]:
     try:
         settings = get_settings()
         
-        # Credentials kontrolü
-        if not settings.trendyol_supplier_id or not settings.trendyol_api_secret:
+        # Credentials kontrolü - 3 bilgi de gerekli
+        if not settings.trendyol_supplier_id or not settings.trendyol_api_key or not settings.trendyol_api_secret:
+            missing = []
+            if not settings.trendyol_supplier_id:
+                missing.append("TRENDYOL_SUPPLIER_ID")
+            if not settings.trendyol_api_key:
+                missing.append("TRENDYOL_API_KEY")
+            if not settings.trendyol_api_secret:
+                missing.append("TRENDYOL_API_SECRET")
+                
             return {
                 "status": "error",
-                "message": "Trendyol API credentials eksik",
+                "message": f"Trendyol API credentials eksik: {', '.join(missing)}",
                 "has_supplier_id": bool(settings.trendyol_supplier_id),
+                "has_api_key": bool(settings.trendyol_api_key),
                 "has_api_secret": bool(settings.trendyol_api_secret),
                 "timestamp": datetime.now().isoformat()
             }

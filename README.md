@@ -127,9 +127,9 @@ SENTOS_API_KEY=your_api_key_here
 SENTOS_ACCOUNT=your_account_name
 
 # Trendyol API (NEW - Direct Integration)
-TRENDYOL_SUPPLIER_ID=your_supplier_id_here     # Required - Your Trendyol Supplier ID
+TRENDYOL_SUPPLIER_ID=your_supplier_id_here     # Required - Your Trendyol Supplier ID (URL'lerde kullanılır)
+TRENDYOL_API_KEY=your_api_key_here             # Required - Authentication için (Supplier ID ile aynı DEĞİL!)
 TRENDYOL_API_SECRET=your_api_secret_here       # Required - Your Trendyol API Secret
-TRENDYOL_API_KEY=your_api_key_here             # Optional - For future use
 TRENDYOL_API_URL=https://apigw.trendyol.com    # Optional - Default value
 
 # Application
@@ -146,8 +146,14 @@ LIVE_SYNC_END_HOUR=23  # Canlı senkronizasyon bitiş saati
 **Trendyol Credentials Nasıl Alınır?**
 1. Trendyol Seller Portal'a giriş yapın
 2. Entegrasyonlar → API Yönetimi bölümüne gidin
-3. Supplier ID ve API Secret bilgilerinizi kopyalayın
+3. **ÖNEMLİ:** 3 bilgiyi de kopyalayın:
+   - **Supplier ID** (Tedarikçi Numarası) - URL'lerde kullanılır
+   - **API Key** (API Anahtarı) - Authentication için kullanılır
+   - **API Secret** (Gizli Anahtar) - Authentication için kullanılır
 4. Bu bilgileri `.env` dosyasına ekleyin
+5. ⚠️ **DİKKAT:** API Key ve Supplier ID farklı değerlerdir!
+6. Uygulamayı yeniden başlatın
+7. Settings sayfasından "Bağlantıyı Test Et" butonuyla kontrol edin
 5. Uygulamayı yeniden başlatın
 6. Settings sayfasından "Bağlantıyı Test Et" butonuyla kontrol edin
 
