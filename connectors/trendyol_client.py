@@ -266,6 +266,141 @@ class TrendyolAPIClient:
         logger.info(f"🎯 Total unique orders: {len(result)} (from {len(all_orders)} total)")
         
         return result
+    
+    def get_product_statistics(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        page: int = 0,
+        size: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Ürün istatistiklerini çek (getProductStatistics)
+        
+        Endpoint: GET /integration/product/sellers/{sellerId}/statistics
+        
+        Args:
+            start_date: Başlangıç tarihi
+            end_date: Bitiş tarihi
+            page: Sayfa numarası (0-based)
+            size: Sayfa boyutu (max 50)
+        
+        Returns:
+            {
+                'page': 0,
+                'size': 50,
+                'totalPages': 10,
+                'totalElements': 500,
+                'content': [
+                    {
+                        'barcode': '1234567890123',
+                        'productCode': 'SKU123',
+                        'productName': 'Ürün Adı',
+                        'brand': 'Marka',
+                        'categoryName': 'Kategori',
+                        'price': 100.0,
+                        'discountedPrice': 80.0,
+                        'stock': 10,
+                        'orderCount': 50,      # Sipariş sayısı
+                        'soldQuantity': 75,     # Satılan adet
+                        'revenue': 4000.0,      # Ciro
+                        'favoriteCount': 20,    # Favoriye eklenme
+                        'visitCount': 500       # Görüntülenme
+                    },
+                    ...
+                ]
+            }
+        """
+        if not self.supplier_id:
+            raise ValueError("Supplier ID gerekli")
+        
+        # Tarih formatı: milliseconds timestamp (GMT+3)
+        start_ts = int(start_date.timestamp() * 1000)
+        end_ts = int(end_date.timestamp() * 1000)
+        
+        endpoint = f"/integration/product/sellers/{self.supplier_id}/statistics"
+        
+        params = {
+            'startDate': start_ts,
+            'endDate': end_ts,
+            'page': page,
+            'size': min(size, 50),  # Max 50
+        }
+        
+        try:
+            response = self.session.get(
+                f"{self.api_url}{endpoint}",
+                params=params,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            logger.info(
+                f"✅ Product stats fetched: page={data.get('page', 0)}, "
+                f"total={data.get('totalElements', 0)}"
+            )
+            
+            return data
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"❌ Product statistics request failed: {e}")
+            if hasattr(e.response, 'text'):
+                logger.error(f"   Response: {e.response.text}")
+            raise
+    
+    def get_all_product_statistics(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        max_pages: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Tüm ürün istatistiklerini çek (pagination)
+        
+        Args:
+            start_date: Başlangıç tarihi
+            end_date: Bitiş tarihi
+            max_pages: Maksimum sayfa sayısı (None=tümü)
+        
+        Returns:
+            Ürün istatistikleri listesi
+        """
+        all_products = []
+        page = 0
+        
+        logger.info(f"📊 Fetching all Trendyol product statistics...")
+        logger.info(f"   Date range: {start_date.date()} - {end_date.date()}")
+        
+        while True:
+            if max_pages and page >= max_pages:
+                logger.info(f"⚠️ Reached max_pages limit: {max_pages}")
+                break
+            
+            result = self.get_product_statistics(
+                start_date=start_date,
+                end_date=end_date,
+                page=page,
+                size=50
+            )
+            
+            products = result.get('content', [])
+            if not products:
+                break
+            
+            all_products.extend(products)
+            
+            total_pages = result.get('totalPages', 0)
+            logger.info(f"   Page {page + 1}/{total_pages}: {len(products)} products")
+            
+            # Son sayfa kontrolü
+            if page >= total_pages - 1:
+                break
+            
+            page += 1
+        
+        logger.info(f"✅ Total products fetched: {len(all_products)}")
+        return all_products
 
 
 def create_trendyol_client_from_config(config) -> TrendyolAPIClient:
