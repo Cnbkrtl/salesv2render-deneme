@@ -247,10 +247,13 @@ class TrendyolAPIClient:
         for status in statuses:
             logger.info(f"🔍 Fetching orders with status={status}")
             
+            # NOT: start_date ve end_date'i API'ye GÖNDERMİYORUZ!
+            # API bu tarihleri PackageLastModifiedDate için kullanıyor
+            # Biz orderDate ile filtreleme yapacağız (caller'da)
             orders = self.get_all_shipment_packages(
                 status=status,
-                start_date=start_date,
-                end_date=end_date,
+                start_date=None,  # API son 1 hafta getirir
+                end_date=None,    # Bizim orderDate filtremiz caller'da
                 max_pages=max_pages
             )
             
