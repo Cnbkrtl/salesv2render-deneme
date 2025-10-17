@@ -49,8 +49,51 @@ const AdminPanel: React.FC = () => {
         }
       });
 
-      setResult(`✅ Başarılı!\n- Ürünler: ${response.data.products_synced}\n- Siparişler: ${response.data.orders_synced}\n- Items: ${response.data.items_synced}\n- Süre: ${response.data.duration_seconds.toFixed(1)}s`);
-      await loadStats();
+      // 🆕 Background task başladı - status takip et
+      if (response.data.status === 'started') {
+        setResult('✅ Resync başlatıldı! Arkaplanda devam ediyor...\n\n📊 İlerlemeyi takip etmek için sayfayı yenileyin.');
+        
+        // Auto-refresh status her 5 saniyede bir
+        const interval = setInterval(async () => {
+          try {
+            const statusRes = await apiClient.get('/api/admin/resync-status');
+            
+            if (!statusRes.data.running) {
+              clearInterval(interval);
+              
+              if (statusRes.data.error) {
+                setError(`❌ Resync hatası: ${statusRes.data.error}`);
+              } else if (statusRes.data.result) {
+                setResult(
+                  `✅ Resync tamamlandı!\n` +
+                  `- Ürünler: ${statusRes.data.result.products_synced}\n` +
+                  `- Siparişler: ${statusRes.data.result.orders_synced}\n` +
+                  `- Items: ${statusRes.data.result.items_synced}\n` +
+                  `- Süre: ${statusRes.data.result.duration_seconds?.toFixed(1)}s`
+                );
+                await loadStats();
+              }
+            } else {
+              setResult(`🔄 ${statusRes.data.progress}\n\nBaşlangıç: ${new Date(statusRes.data.start_time).toLocaleTimeString()}`);
+            }
+          } catch (e) {
+            console.error('Status check error:', e);
+          }
+        }, 5000);
+        
+        // 10 dakika sonra interval'i durdur
+        setTimeout(() => clearInterval(interval), 600000);
+      } else {
+        // Legacy response format (eski API)
+        setResult(
+          `✅ Başarılı!\n` +
+          `- Ürünler: ${response.data.products_synced}\n` +
+          `- Siparişler: ${response.data.orders_synced}\n` +
+          `- Items: ${response.data.items_synced}\n` +
+          `- Süre: ${response.data.duration_seconds.toFixed(1)}s`
+        );
+        await loadStats();
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Resync başarısız!');
     } finally {
