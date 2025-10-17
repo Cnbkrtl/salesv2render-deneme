@@ -100,13 +100,28 @@ class TrendyolDataFetcherService:
             
             logger.info(f"✅ Filtered to {len(filtered_packages)} packages by orderDate (was {len(packages)})")
             
+            # 🔄 YENİ: Packages'leri orderNumber'a göre grupla
+            # 1 OrderNumber = 1 SalesOrder (birden fazla paket olabilir)
+            orders_map = {}
+            for package in filtered_packages:
+                order_number = package.get('orderNumber')
+                if not order_number:
+                    logger.warning(f"⚠️ Package {package.get('id')} has no orderNumber, skipping")
+                    continue
+                
+                if order_number not in orders_map:
+                    orders_map[order_number] = []
+                orders_map[order_number].append(package)
+            
+            logger.info(f"📊 Grouped into {len(orders_map)} unique orders from {len(filtered_packages)} packages")
+            
             # Database'e kaydet
             orders_count = 0
             items_count = 0
             
-            for package in filtered_packages:
+            for order_number, packages_list in orders_map.items():
                 try:
-                    items = self._process_and_store_trendyol_package(db, package)
+                    items = self._process_and_store_trendyol_order(db, order_number, packages_list)
                     orders_count += 1
                     items_count += items
                     
@@ -116,7 +131,7 @@ class TrendyolDataFetcherService:
                         logger.info(f"💾 Committed {orders_count} orders, {items_count} items")
                 
                 except Exception as e:
-                    logger.error(f"❌ Error processing package {package.get('id')}: {e}")
+                    logger.error(f"❌ Error processing order {order_number}: {e}")
                     continue
             
             # Final commit
@@ -188,55 +203,95 @@ class TrendyolDataFetcherService:
         
         logger.info(f"📦 Product cache loaded: {len(products)} products")
     
-    def _process_and_store_trendyol_package(self, db: Session, package: Dict[str, Any]) -> int:
+    def _process_and_store_trendyol_order(
+        self, 
+        db: Session, 
+        order_number: str, 
+        packages: List[Dict[str, Any]]
+    ) -> int:
         """
-        Bir Trendyol paketini işle ve database'e kaydet
+        Bir Trendyol siparişini işle (birden fazla paketten oluşabilir)
+        
+        Args:
+            order_number: Trendyol orderNumber (unique)
+            packages: Bu orderNumber'a ait tüm shipment packages
         
         Returns:
             Number of items stored
         """
-        # Sipariş bilgileri
-        shipment_package_id = package.get('id')  # Trendyol shipmentPackageId
-        order_number = package.get('orderNumber')  # Trendyol orderNumber
-        
-        # Sentos ID oluştur (Trendyol için negatif ID kullanıyoruz)
-        # Bu şekilde Sentos ile çakışmaz
-        sentos_order_id = -(shipment_package_id or 0)
-        
-        # Sipariş zaten var mı kontrol et
+        # Sipariş zaten var mı kontrol et (orderNumber bazlı)
         existing = db.query(SalesOrder).filter(
-            SalesOrder.trendyol_shipment_package_id == shipment_package_id
+            SalesOrder.trendyol_order_number == order_number
         ).first()
         
         if existing:
-            logger.debug(f"   Order {shipment_package_id} already exists, skipping")
+            logger.debug(f"   Order {order_number} already exists, skipping")
             return 0
         
+        # İlk paketten ana bilgileri al (tüm paketler aynı sipariş)
+        first_package = packages[0]
+        
         # Sipariş tarihi (Trendyol: milliseconds timestamp, GMT+3)
-        order_date_ms = package.get('orderDate', 0)
+        order_date_ms = first_package.get('orderDate', 0)
         order_date = datetime.fromtimestamp(order_date_ms / 1000) if order_date_ms else datetime.now()
         
-        # Sipariş statüsü map et
-        status_str = package.get('status', 'Created')
-        order_status = self._map_trendyol_status(status_str)
+        # En güncel statüyü bul (priority: Delivered > Shipped > Cancelled > Created)
+        status_priority = {
+            'Delivered': 99,
+            'Shipped': 5,
+            'AtCollectionPoint': 5,
+            'Cancelled': 6,
+            'UnSupplied': 6,
+            'UnDelivered': 6,
+            'Returned': 6,
+            'Invoiced': 2,
+            'Picking': 2,
+            'Created': 1,
+            'UnPacked': 1,
+            'Awaiting': 1
+        }
+        
+        current_status = 'Created'
+        current_priority = 0
+        for pkg in packages:
+            status = pkg.get('status', 'Created')
+            priority = status_priority.get(status, 0)
+            if priority > current_priority:
+                current_status = status
+                current_priority = priority
+        
+        order_status = self._map_trendyol_status(current_status)
+        
+        # Toplam tutarları hesapla (tüm paketlerden)
+        total_amount = sum(pkg.get('grossAmount', 0.0) for pkg in packages)
+        
+        # İlk paketin shipmentPackageId'sini ana ID olarak kullan
+        primary_package_id = first_package.get('id')
+        
+        # Sentos ID oluştur (Trendyol için negatif ID)
+        sentos_order_id = -(primary_package_id or 0)
+        
+        # Kargo bilgisi (ilk paketten - genelde aynı)
+        cargo_tracking = first_package.get('cargoTrackingNumber', '')
+        cargo_provider = first_package.get('cargoProviderName', '')
         
         # Sipariş kaydet
         order = SalesOrder(
             sentos_order_id=sentos_order_id,
-            order_code=package.get('cargoTrackingNumber', order_number),
-            trendyol_shipment_package_id=shipment_package_id,
-            trendyol_order_number=order_number,
+            order_code=cargo_tracking or order_number,
+            trendyol_shipment_package_id=primary_package_id,  # İlk paket ID
+            trendyol_order_number=order_number,  # Gerçek sipariş numarası
             order_date=order_date,
             marketplace='Trendyol',
             shop='Trendyol',
             order_status=order_status,
-            order_total=package.get('grossAmount', 0.0),
-            shipping_total=0.0,  # Trendyol'da shipping ayrı gelmiyor
+            order_total=total_amount,
+            shipping_total=0.0,
             carrying_charge=0.0,
             service_fee=0.0,
-            cargo_provider=package.get('cargoProviderName', ''),
-            cargo_number=package.get('cargoTrackingNumber', ''),
-            has_invoice='yes' if package.get('invoiceLink') else 'no',
+            cargo_provider=cargo_provider,
+            cargo_number=cargo_tracking,
+            has_invoice='yes' if first_package.get('invoiceLink') else 'no',
             invoice_type='',
             invoice_number=''
         )
@@ -244,42 +299,47 @@ class TrendyolDataFetcherService:
         db.add(order)
         db.flush()  # ID al
         
-        # Order items
-        lines = package.get('lines', [])
+        # Order items - TÜM paketlerdeki itemleri ekle
         items_count = 0
         
-        for line in lines:
-            try:
-                order_line_id = line.get('id')
-                unique_key = f"trendyol_{order.trendyol_shipment_package_id}_{order_line_id}"
-                
-                # Check if already exists
-                existing = db.query(SalesOrderItem).filter_by(unique_key=unique_key).first()
-                if existing:
-                    logger.debug(f"⏭️  Item already exists: {unique_key}")
+        for package in packages:
+            package_id = package.get('id')
+            lines = package.get('lines', [])
+            
+            for line in lines:
+                try:
+                    order_line_id = line.get('id')
+                    unique_key = f"trendyol_{package_id}_{order_line_id}"
+                    
+                    # Check if already exists
+                    existing_item = db.query(SalesOrderItem).filter_by(unique_key=unique_key).first()
+                    if existing_item:
+                        logger.debug(f"⏭️  Item already exists: {unique_key}")
+                        continue
+                    
+                    item = self._create_trendyol_order_item(db, order, line, package_id)
+                    if item:
+                        db.add(item)
+                        items_count += 1
+                except Exception as e:
+                    # Check for unique constraint violation
+                    error_msg = str(e).lower()
+                    if 'unique' in error_msg or 'duplicate' in error_msg:
+                        logger.warning(f"⚠️ Duplicate item skipped (line {line.get('id')}): {line.get('merchantSku', 'N/A')}")
+                    else:
+                        logger.error(f"❌ Error creating item for line {line.get('id')}: {e}")
+                        logger.error(f"   Line data: {line}")
                     continue
-                
-                item = self._create_trendyol_order_item(db, order, line)
-                if item:
-                    db.add(item)
-                    items_count += 1
-            except Exception as e:
-                # Check for unique constraint violation
-                error_msg = str(e).lower()
-                if 'unique' in error_msg or 'duplicate' in error_msg:
-                    logger.warning(f"⚠️ Duplicate item skipped (line {line.get('id')}): {line.get('merchantSku', 'N/A')}")
-                else:
-                    logger.error(f"❌ Error creating item for line {line.get('id')}: {e}")
-                    logger.error(f"   Line data: {line}")
-                continue
         
+        logger.info(f"✅ Order {order_number}: {len(packages)} packages, {items_count} items")
         return items_count
     
     def _create_trendyol_order_item(
         self, 
         db: Session, 
         order: SalesOrder, 
-        line: Dict[str, Any]
+        line: Dict[str, Any],
+        package_id: int
     ) -> Optional[SalesOrderItem]:
         """Trendyol order line'ı SalesOrderItem'a çevir"""
         
@@ -296,8 +356,8 @@ class TrendyolDataFetcherService:
         if product and product.cost:
             unit_cost = product.cost
         
-        # Unique key
-        unique_key = f"trendyol_{order.trendyol_shipment_package_id}_{order_line_id}"
+        # Unique key - PACKAGE_ID kullan (birden fazla paket olabilir)
+        unique_key = f"trendyol_{package_id}_{order_line_id}"
         
         # İtem statüsü
         item_status_name = line.get('orderLineItemStatusName', '')
