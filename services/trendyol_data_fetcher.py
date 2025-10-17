@@ -284,14 +284,14 @@ class TrendyolDataFetcherService:
         item_status_name = line.get('orderLineItemStatusName', '')
         is_return = 'return' in item_status_name.lower() or 'iade' in item_status_name.lower()
         
-        # Fiyat bilgileri
-        unit_price = line.get('price', 0.0)
-        discount = line.get('discount', 0.0)
-        amount = line.get('amount', unit_price * quantity)
+        # Fiyat bilgileri (None kontrolü!)
+        unit_price = line.get('price') or 0.0
+        discount = line.get('discount') or 0.0
+        amount = line.get('amount') or (unit_price * quantity)
         
-        # Commission
-        commission_amount = line.get('commission', 0.0)
-        commission_rate = (commission_amount / amount * 100) if amount > 0 else 0.0
+        # Commission (None-safe)
+        commission_amount = line.get('commission') or 0.0
+        commission_rate = (commission_amount / amount * 100) if (amount and amount > 0) else 0.0
         
         item = SalesOrderItem(
             order_id=order.id,
