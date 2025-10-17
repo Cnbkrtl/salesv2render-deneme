@@ -280,6 +280,11 @@ class DataFetcherService:
                     logger.debug(f"Skipping RETAIL order {order['id']}")
                     continue
                 
+                # TRENDYOL filtresi (Trendyol API'den direkt alınacak)
+                if normalized_mp.upper() in ['TRENDYOL', 'TY']:
+                    logger.debug(f"⏭️ Skipping Trendyol order {order['id']} (will fetch from Trendyol API)")
+                    continue
+                
                 # Geçersiz marketplace'leri de kaydet (UNKNOWN olarak)
                 if normalized_mp == "UNKNOWN" and marketplace_name:
                     logger.warning(f"Unknown marketplace: {marketplace_name}, saving as UNKNOWN")
