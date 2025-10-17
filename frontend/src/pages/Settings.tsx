@@ -21,7 +21,7 @@ const Settings: React.FC = () => {
 
   // Trendyol state
   const [trendyolSyncing, setTrendyolSyncing] = useState(false);
-  const [trendyolDays, setTrendyolDays] = useState<number>(7);
+  const [trendyolDays, setTrendyolDays] = useState<number>(14);
   const [trendyolConnectionStatus, setTrendyolConnectionStatus] = useState<TrendyolTestConnectionResponse | null>(null);
   const [trendyolLastSync, setTrendyolLastSync] = useState<string | null>(null);
 
@@ -367,12 +367,14 @@ const Settings: React.FC = () => {
                 >
                   <option value={1}>Son 1 gün</option>
                   <option value={3}>Son 3 gün</option>
-                  <option value={7}>Son 7 gün (önerilen)</option>
-                  <option value={14}>Son 14 gün</option>
+                  <option value={7}>Son 7 gün</option>
+                  <option value={14}>Son 14 gün (önerilen)</option>
                   <option value={30}>Son 30 gün</option>
+                  <option value={60}>Son 60 gün (2 ay)</option>
+                  <option value={90}>Son 90 gün (3 ay)</option>
                 </select>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Otomatik sync her gün son 7 günü çeker. Manuel sync için farklı aralık seçebilirsiniz.
+                  Otomatik sync her gün son 7 günü çeker. Manuel sync için 1-90 gün arası seçebilirsiniz.
                 </p>
               </div>
 

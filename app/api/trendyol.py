@@ -18,13 +18,13 @@ logger = logging.getLogger(__name__)
 
 @router.post("/sync")
 async def sync_trendyol_orders(
-    days: int = Query(default=7, ge=1, le=30, description="Son kaç günün verisi çekilecek (1-30 arası)")
+    days: int = Query(default=14, ge=1, le=90, description="Son kaç günün verisi çekilecek (1-90 arası)")
 ) -> Dict[str, Any]:
     """
     Manuel Trendyol sipariş senkronizasyonu
     
     Args:
-        days: Son kaç günün verisi çekilecek (varsayılan: 7)
+        days: Son kaç günün verisi çekilecek (varsayılan: 14, maksimum: 90)
     
     Returns:
         Sync sonuçları (sipariş sayısı, item sayısı, süre)
