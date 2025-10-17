@@ -249,10 +249,15 @@ class TrendyolDataFetcherService:
         items_count = 0
         
         for line in lines:
-            item = self._create_trendyol_order_item(db, order, line)
-            if item:
-                db.add(item)
-                items_count += 1
+            try:
+                item = self._create_trendyol_order_item(db, order, line)
+                if item:
+                    db.add(item)
+                    items_count += 1
+            except Exception as e:
+                logger.error(f"❌ Error creating item for line {line.get('id')}: {e}")
+                logger.error(f"   Line data: {line}")
+                continue
         
         return items_count
     
