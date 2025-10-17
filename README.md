@@ -126,6 +126,12 @@ SENTOS_API_URL=https://stildiva.sentos.com.tr/api
 SENTOS_API_KEY=your_api_key_here
 SENTOS_ACCOUNT=your_account_name
 
+# Trendyol API (NEW - Direct Integration)
+TRENDYOL_SUPPLIER_ID=your_supplier_id_here     # Required - Your Trendyol Supplier ID
+TRENDYOL_API_SECRET=your_api_secret_here       # Required - Your Trendyol API Secret
+TRENDYOL_API_KEY=your_api_key_here             # Optional - For future use
+TRENDYOL_API_URL=https://apigw.trendyol.com    # Optional - Default value
+
 # Application
 ENVIRONMENT=development
 FRONTEND_URL=http://localhost:5173
@@ -136,6 +142,14 @@ LIVE_SYNC_INTERVAL=10  # Canlı senkronizasyon aralığı (dakika)
 LIVE_SYNC_START_HOUR=8  # Canlı senkronizasyon başlangıç saati
 LIVE_SYNC_END_HOUR=23  # Canlı senkronizasyon bitiş saati
 ```
+
+**Trendyol Credentials Nasıl Alınır?**
+1. Trendyol Seller Portal'a giriş yapın
+2. Entegrasyonlar → API Yönetimi bölümüne gidin
+3. Supplier ID ve API Secret bilgilerinizi kopyalayın
+4. Bu bilgileri `.env` dosyasına ekleyin
+5. Uygulamayı yeniden başlatın
+6. Settings sayfasından "Bağlantıyı Test Et" butonuyla kontrol edin
 
 ### Frontend Environment Variables
 

@@ -390,6 +390,187 @@ Response: {
 - **Why background tasks?** Render has 60s timeout, syncs can take 5+ minutes
 - **Why scheduler service?** Automates data freshness without manual intervention
 - **Why 30s refresh?** Balance between real-time updates and API load
+- **Why dual-source architecture?** Trendyol direct API provides more reliable and up-to-date data than Sentos relay
+
+---
+
+## 🟠 Trendyol Direct API Integration
+
+### Overview
+As of October 17, 2025, Trendyol marketplace orders are now fetched **directly from Trendyol's API** instead of through Sentos. This dual-source architecture ensures more reliable and up-to-date Trendyol data.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────┐
+│         Scheduled Sync Service          │
+│  (Daily 02:00 + Live every 10 min)     │
+└───────────┬─────────────────────────┬───┘
+            │                         │
+            ▼                         ▼
+   ┌────────────────┐       ┌────────────────┐
+   │  Sentos API    │       │  Trendyol API  │
+   │  (LCW, other   │       │   (Direct)     │
+   │  marketplaces) │       │                │
+   └────────┬───────┘       └────────┬───────┘
+            │                        │
+            │ (Trendyol filtered)    │ (negative IDs)
+            ▼                        ▼
+   ┌─────────────────────────────────────────┐
+   │      PostgreSQL Database                │
+   │  - SalesOrder (unified)                 │
+   │  - SalesOrderItem (unified)             │
+   │  - Product (Sentos only)                │
+   └─────────────────────────────────────────┘
+```
+
+### Key Components
+
+**1. Trendyol API Client** (`connectors/trendyol_client.py`)
+- REST client for Trendyol Marketplace Seller API
+- Endpoint: `GET /integration/order/sellers/{sellerId}/orders`
+- Authentication: Basic Auth (supplier_id:api_secret)
+- Pagination support (max 200 items per page)
+- Date range filtering (timestamp milliseconds, GMT+3)
+- Status filtering (10+ Trendyol statuses)
+
+**2. Trendyol Data Fetcher** (`services/trendyol_data_fetcher.py`)
+- Converts Trendyol API responses to database models
+- Status mapping: Trendyol statuses → Sentos status codes (1-6, 99)
+- Negative ID strategy: `sentos_order_id = -(shipment_package_id)`
+- Prevents collision between Sentos (positive IDs) and Trendyol (negative IDs)
+- Product cost lookup from cache
+- Batch processing (50 orders per commit)
+
+**3. Sentos Data Fetcher Filter** (`services/data_fetcher.py`)
+- Automatically skips Trendyol orders in Sentos data
+- Filter logic: `if normalized_mp in ['TRENDYOL', 'TY']: skip`
+- Prevents duplicate data from both sources
+- Clear logging: "⏭️ Skipping Trendyol order (will fetch from Trendyol API)"
+
+**4. Scheduler Integration** (`services/scheduled_sync.py`)
+- **Daily Full Sync (02:00):**
+  - Products from Sentos
+  - Sentos orders (last 7 days, Trendyol excluded)
+  - Trendyol orders (last 7 days, direct API)
+- **Live Sync (every 10 min, 08:00-23:00):**
+  - Sentos today's orders (Trendyol excluded)
+  - Trendyol today's orders (direct API)
+- Independent error handling (one source failure won't block other)
+- Enhanced logging: 🔵 Sentos, 🟠 Trendyol
+
+**5. API Endpoints** (`app/api/trendyol.py`)
+- `POST /api/trendyol/sync?days=7` - Manual Trendyol sync (1-30 days)
+  - Returns: orders_fetched, items_stored, duration_seconds, date_range
+- `GET /api/trendyol/test-connection` - Test Trendyol API credentials
+  - Returns: connection status, supplier_id, test_query results
+- Both endpoints protected with API key authentication
+
+**6. Frontend UI** (`frontend/src/pages/Settings.tsx`)
+- Trendyol Senkronizasyonu card with:
+  - Connection test button
+  - Days selector (1-30 days)
+  - Manual sync button
+  - Last sync timestamp display
+  - Status indicators (success/error)
+- API service functions in `frontend/src/lib/api-service.ts`:
+  - `syncTrendyolOrders(days)` - Trigger manual sync
+  - `testTrendyolConnection()` - Test API connection
+
+### Database Schema
+
+**Extended Tables:**
+
+```sql
+-- SalesOrder table
+ALTER TABLE sales_orders ADD COLUMN trendyol_shipment_package_id BIGINT UNIQUE;
+ALTER TABLE sales_orders ADD COLUMN trendyol_order_number VARCHAR(50);
+CREATE INDEX idx_trendyol_shipment_package ON sales_orders(trendyol_shipment_package_id);
+CREATE INDEX idx_trendyol_order_number ON sales_orders(trendyol_order_number);
+
+-- SalesOrderItem table
+ALTER TABLE sales_order_items ADD COLUMN trendyol_order_line_id BIGINT;
+CREATE INDEX idx_trendyol_order_line ON sales_order_items(trendyol_order_line_id);
+```
+
+**ID Strategy:**
+- Sentos orders: Positive IDs (e.g., 12345)
+- Trendyol orders: Negative IDs (e.g., -11650604)
+- Prevents collision and allows easy source identification
+
+### Configuration
+
+**Environment Variables (required):**
+```bash
+# Trendyol API Credentials
+TRENDYOL_SUPPLIER_ID=your_supplier_id      # Required
+TRENDYOL_API_KEY=your_api_key              # Optional (for future use)
+TRENDYOL_API_SECRET=your_api_secret        # Required
+TRENDYOL_API_URL=https://apigw.trendyol.com  # Default
+```
+
+**Config File** (`app/core/config.py`):
+```python
+class Settings(BaseSettings):
+    trendyol_api_url: str = "https://apigw.trendyol.com"
+    trendyol_supplier_id: Optional[str] = None
+    trendyol_api_key: Optional[str] = None
+    trendyol_api_secret: Optional[str] = None
+```
+
+### Status Mapping
+
+| Trendyol Status | Sentos Status Code | Description |
+|----------------|-------------------|-------------|
+| Created | 1 | Onay Bekliyor |
+| Picking | 2 | Hazırlanıyor |
+| Invoiced | 2 | Hazırlanıyor |
+| Shipped | 3 | Kargoya Verildi |
+| Delivered | 4 | Teslim Edildi |
+| Cancelled | 6 | İptal |
+| Returned | 5 | İade |
+| UnSupplied | 6 | İptal |
+| UnPacked | 2 | Hazırlanıyor |
+| AtCollectionPoint | 3 | Kargoya Verildi |
+
+### Benefits
+
+1. **Direct Data Source:** No middleman, more reliable Trendyol data
+2. **No Duplicates:** Sentos filter ensures Trendyol orders aren't fetched twice
+3. **Unified Database:** Both sources write to same tables (negative ID strategy)
+4. **Independent Error Handling:** One source failure won't block the other
+5. **Manual Control:** API endpoints allow manual Trendyol sync and connection testing
+6. **Automatic Sync:** Scheduler handles both sources in daily and live sync cycles
+
+### Troubleshooting
+
+**Problem:** Trendyol sync not working
+- **Check:** TRENDYOL_SUPPLIER_ID and TRENDYOL_API_SECRET set in .env
+- **Check:** Use "Test Connection" button in Settings to verify credentials
+- **Check:** Logs for "⚠️ Trendyol credentials eksik" warning
+
+**Problem:** Duplicate Trendyol orders
+- **Check:** Sentos filter is active (services/data_fetcher.py line ~283)
+- **Check:** Logs for "⏭️ Skipping Trendyol order" messages
+- **Solution:** Run SQL to check: `SELECT COUNT(*) FROM sales_orders WHERE sentos_order_id < 0`
+
+**Problem:** Trendyol API rate limit
+- **Limit:** Trendyol has rate limits (check API documentation)
+- **Solution:** Reduce sync frequency or date range
+- **Note:** Daily sync (7 days) is usually safe
+
+**Files Modified/Created:**
+- Created: `connectors/trendyol_client.py` (340 lines)
+- Created: `services/trendyol_data_fetcher.py` (350 lines)
+- Created: `app/api/trendyol.py` (155 lines)
+- Modified: `database/models.py` (3 new columns)
+- Modified: `app/core/config.py` (4 new settings)
+- Modified: `services/data_fetcher.py` (Trendyol filter)
+- Modified: `services/scheduled_sync.py` (dual-source sync)
+- Modified: `app/main.py` (Trendyol router registration)
+- Modified: `connectors/__init__.py` (TrendyolAPIClient export)
+- Modified: `frontend/src/lib/api-service.ts` (Trendyol API functions)
+- Modified: `frontend/src/pages/Settings.tsx` (Trendyol sync UI)
 
 ---
 
