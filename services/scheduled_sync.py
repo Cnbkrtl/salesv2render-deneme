@@ -8,7 +8,9 @@ from datetime import datetime, time, timedelta
 from typing import Optional
 
 from services.data_fetcher import DataFetcherService
+from services.trendyol_data_fetcher import TrendyolDataFetcherService
 from connectors.sentos_client import SentosAPIClient
+from connectors.trendyol_client import TrendyolAPIClient
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -154,25 +156,59 @@ class ScheduledSyncService:
             finally:
                 db.close()
             
-            # Sonra sipariş sync (7 gün)
+            # Sonra sipariş sync (7 gün) - SENTOS (Trendyol hariç)
             start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
             end_date = datetime.now().strftime('%Y-%m-%d')
             
-            result = await asyncio.to_thread(
+            logger.info("🔵 Sentos sync başlatılıyor (Trendyol hariç)...")
+            sentos_result = await asyncio.to_thread(
                 fetcher.fetch_and_store_orders,
                 start_date=start_date,
                 end_date=end_date,
                 marketplace=None,
                 clear_existing=False
             )
+            logger.info(f"✅ Sentos sync tamamlandı: {sentos_result.get('orders_fetched', 0)} sipariş")
+            
+            # TRENDYOL SYNC (direkt API)
+            trendyol_orders = 0
+            trendyol_items = 0
+            if self.settings.trendyol_supplier_id and self.settings.trendyol_api_secret:
+                try:
+                    logger.info("🟠 Trendyol sync başlatılıyor (direkt API)...")
+                    trendyol_client = TrendyolAPIClient(
+                        supplier_id=self.settings.trendyol_supplier_id,
+                        api_key=self.settings.trendyol_api_key,
+                        api_secret=self.settings.trendyol_api_secret
+                    )
+                    trendyol_fetcher = TrendyolDataFetcherService(trendyol_client=trendyol_client)
+                    
+                    # Trendyol için de 7 gün
+                    trendyol_start = datetime.now() - timedelta(days=7)
+                    trendyol_end = datetime.now()
+                    
+                    trendyol_result = await asyncio.to_thread(
+                        trendyol_fetcher.fetch_and_store_trendyol_orders,
+                        start_date=trendyol_start,
+                        end_date=trendyol_end,
+                        statuses=None  # Tüm statusler
+                    )
+                    trendyol_orders = trendyol_result.get('orders_fetched', 0)
+                    trendyol_items = trendyol_result.get('items_stored', 0)
+                    logger.info(f"✅ Trendyol sync tamamlandı: {trendyol_orders} sipariş")
+                except Exception as e:
+                    logger.error(f"❌ Trendyol sync hatası: {e}", exc_info=True)
+            else:
+                logger.warning("⚠️ Trendyol credentials eksik, Trendyol sync atlandı")
             
             duration = (datetime.now() - start_time).total_seconds()
             self.last_full_sync = datetime.now()
             
             logger.info(f"✅ Günlük tam sync tamamlandı ({duration:.1f}s)")
             logger.info(f"   - Ürünler: {product_count}")
-            logger.info(f"   - Siparişler: {result.get('orders_fetched', 0)}")
-            logger.info(f"   - İtemler: {result.get('items_stored', 0)}")
+            logger.info(f"   - Sentos Siparişler: {sentos_result.get('orders_fetched', 0)}")
+            logger.info(f"   - Trendyol Siparişler: {trendyol_orders}")
+            logger.info(f"   - Toplam İtemler: {sentos_result.get('items_stored', 0) + trendyol_items}")
             
         except Exception as e:
             logger.error(f"❌ Tam sync hatası: {e}", exc_info=True)
@@ -186,7 +222,8 @@ class ScheduledSyncService:
             # Sadece bugünün verisi
             today = datetime.now().strftime('%Y-%m-%d')
             
-            # Sentos client oluştur
+            # SENTOS SYNC (Trendyol hariç)
+            logger.info("🔵 Sentos canlı sync...")
             sentos = SentosAPIClient(
                 api_url=self.settings.sentos_api_url,
                 api_key=self.settings.sentos_api_key,
@@ -195,7 +232,7 @@ class ScheduledSyncService:
             
             # Data fetcher service oluştur ve veriyi çek
             fetcher = DataFetcherService(sentos_client=sentos)
-            result = await asyncio.to_thread(
+            sentos_result = await asyncio.to_thread(
                 fetcher.fetch_and_store_orders,
                 start_date=today,
                 end_date=today,
@@ -203,11 +240,38 @@ class ScheduledSyncService:
                 clear_existing=False
             )
             
+            # TRENDYOL SYNC (direkt API)
+            trendyol_orders = 0
+            if self.settings.trendyol_supplier_id and self.settings.trendyol_api_secret:
+                try:
+                    logger.info("🟠 Trendyol canlı sync...")
+                    trendyol_client = TrendyolAPIClient(
+                        supplier_id=self.settings.trendyol_supplier_id,
+                        api_key=self.settings.trendyol_api_key,
+                        api_secret=self.settings.trendyol_api_secret
+                    )
+                    trendyol_fetcher = TrendyolDataFetcherService(trendyol_client=trendyol_client)
+                    
+                    # Bugün için
+                    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+                    today_end = datetime.now()
+                    
+                    trendyol_result = await asyncio.to_thread(
+                        trendyol_fetcher.fetch_and_store_trendyol_orders,
+                        start_date=today_start,
+                        end_date=today_end,
+                        statuses=None
+                    )
+                    trendyol_orders = trendyol_result.get('orders_fetched', 0)
+                except Exception as e:
+                    logger.error(f"❌ Trendyol canlı sync hatası: {e}", exc_info=True)
+            
             duration = (datetime.now() - start_time).total_seconds()
             self.last_live_sync = datetime.now()
             
             logger.info(f"✅ Canlı sync tamamlandı ({duration:.1f}s)")
-            logger.info(f"   - Siparişler: {result.get('orders_fetched', 0)}")
+            logger.info(f"   - Sentos: {sentos_result.get('orders_fetched', 0)} sipariş")
+            logger.info(f"   - Trendyol: {trendyol_orders} sipariş")
             
         except Exception as e:
             logger.error(f"❌ Canlı sync hatası: {e}", exc_info=True)
