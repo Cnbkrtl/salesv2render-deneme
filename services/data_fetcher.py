@@ -60,9 +60,11 @@ def extract_base_sku(variant_sku: Optional[str]) -> Optional[str]:
     Örnekler:
     - 'BYK-25K-303760-M41-R15' -> '303760'
     - 'BYK-24K-302793-M51-R15' -> '302793'
-    - 'BYK-25Y-304177' -> 'BYK-25Y-304177' (zaten ana SKU)
+    - 'BYK-25Y-304177' -> '304177' (sadece sayıyı döndür)
     - '194938-M41-R15' -> '194938'
     - '322685' -> '322685' (zaten ana SKU)
+    - '144236Siyah' -> '144236' (renk sonekini kaldır)
+    - 'BYK-23Y-301320Lacivert' -> '301320' (renk sonekini kaldır)
     
     Args:
         variant_sku: Varyant SKU kodu
@@ -76,19 +78,56 @@ def extract_base_sku(variant_sku: Optional[str]) -> Optional[str]:
     variant_sku = variant_sku.strip()
     parts = variant_sku.split('-')
     
+    # Renk sonekleri (Türkçe)
+    color_suffixes = ['Siyah', 'Beyaz', 'Kırmızı', 'Mavi', 'Yeşil', 'Sarı', 
+                      'Turuncu', 'Mor', 'Pembe', 'Kahverengi', 'Gri', 
+                      'Lacivert', 'Krem', 'Antrasit', 'Bordo', 'Haki']
+    
     # BYK-25K-303760-M41-R15 formatı (Satış varyantı - 5+ parça)
+    # Özel durum: BYK-25Y-101-8-M49-R42 -> base: 101-8 (son 2 parça M ve R ile başlıyorsa)
     if variant_sku.startswith('BYK-') and len(parts) >= 5:
-        # BYK-25K-303760-M41-R15 -> 303760 (3. parça)
-        return parts[2]
+        # Son iki parça M ve R ile başlıyorsa (beden/renk kodu), öncesini al
+        # BYK-25Y-101-8-M49-R42 -> parts: ['BYK', '25Y', '101', '8', 'M49', 'R42']
+        # M ve R ile başlayan parçaları bul
+        m_index = None
+        for i, part in enumerate(parts):
+            if part.startswith('M') and i < len(parts) - 1:
+                next_part = parts[i + 1]
+                if next_part.startswith('R'):
+                    m_index = i
+                    break
+        
+        if m_index and m_index >= 3:
+            # BYK-25Y-101-8-M49-R42 -> base: 101-8 (3. ve 4. parçayı birleştir)
+            base = '-'.join(parts[2:m_index])
+        else:
+            # Normal durum: BYK-25K-303760-M41-R15 -> 303760
+            base = parts[2]
+        
+        # Renk sonekini kaldır (eğer varsa)
+        for color in color_suffixes:
+            if base.endswith(color):
+                return base[:-len(color)]
+        return base
     
     # BYK-25Y-304177 formatı (Product tablosu - 3 parça)
-    # Bu zaten ana SKU, olduğu gibi dön
+    # CSV'de bu formatta base SKU var, sadece sayıyı döndür
     if variant_sku.startswith('BYK-') and len(parts) == 3:
-        return variant_sku
+        base = parts[2]  # 304177 veya 301320Lacivert
+        # Renk sonekini kaldır (eğer varsa)
+        for color in color_suffixes:
+            if base.endswith(color):
+                return base[:-len(color)]
+        return base
     
-    # BYK-24Y-126443-M41-R15 -> 126443 (satış varyantı)
+    # BYK-24Y-126443-M41-R15 -> 126443 (satış varyantı - 4 parça)
     if variant_sku.startswith('BYK-') and len(parts) == 4:
-        return parts[2]
+        base = parts[2]
+        # Renk sonekini kaldır (eğer varsa)
+        for color in color_suffixes:
+            if base.endswith(color):
+                return base[:-len(color)]
+        return base
     
     # 194938-M41-R15 formatı (Normal ürün varyantı)
     if '-' in variant_sku and len(parts) >= 3:
@@ -97,6 +136,11 @@ def extract_base_sku(variant_sku: Optional[str]) -> Optional[str]:
         # Eğer ilk part sayısal bir kod ise (5+ haneli)
         if first_part.isdigit() and len(first_part) >= 5:
             return first_part
+    
+    # Renk sonekini kaldır (144236Siyah gibi)
+    for color in color_suffixes:
+        if variant_sku.endswith(color):
+            return variant_sku[:-len(color)]
     
     # Hiç tire yoksa zaten ana SKU olabilir
     return variant_sku
@@ -151,6 +195,7 @@ class DataFetcherService:
         # Memory cache (DB Product modelleri)
         self.product_cache: Dict[str, Product] = {}
         self.product_cache_by_barcode: Dict[str, Product] = {}
+        self.product_cache_by_base_sku: Dict[str, Product] = {}  # 🆕 CSV formatı için
         # Disk cache (Cost bilgileri - 24 saat TTL)
         self.cost_cache = ProductCostCache(cache_dir='data', ttl_hours=24)
         # BYK Prefixes (otomatik keşfedilecek)
@@ -530,7 +575,7 @@ class DataFetcherService:
                     name=product.name
                 )
             
-            # 2. Ana SKU ile dene
+            # 2. Ana SKU ile dene (extract_base_sku kullan)
             elif base_sku and base_sku in self.product_cache:
                 product = self.product_cache[base_sku]
                 unit_cost_with_vat = product.purchase_price_with_vat
@@ -538,6 +583,22 @@ class DataFetcherService:
                 # Monitoring: Base SKU match
                 self.monitor.record_match('base_sku', product_sku, base_sku)
                 logger.debug(f"✅ COST MATCHED: {product_sku} → {base_sku} = {unit_cost_with_vat:.2f} TL")
+                # Disk cache'e ekle (varyant SKU ile)
+                self.cost_cache.add_to_cache(
+                    sku=product_sku,
+                    cost=unit_cost_with_vat,
+                    barcode=barcode,
+                    name=product_name
+                )
+            
+            # 🆕 2.5. Base SKU cache ile dene (CSV formatı: BYK-24Y-144779 → 144779)
+            elif base_sku and base_sku in self.product_cache_by_base_sku:
+                product = self.product_cache_by_base_sku[base_sku]
+                unit_cost_with_vat = product.purchase_price_with_vat
+                cost_source = "BASE_SKU_CACHE"
+                # Monitoring: Base SKU cache match
+                self.monitor.record_match('base_sku_cache', product_sku, product.sku)
+                logger.debug(f"✅ COST BASE_SKU_CACHE: {product_sku} → {product.sku} = {unit_cost_with_vat:.2f} TL")
                 # Disk cache'e ekle (varyant SKU ile)
                 self.cost_cache.add_to_cache(
                     sku=product_sku,
@@ -773,9 +834,23 @@ class DataFetcherService:
         self.product_cache = {p.sku: p for p in products if p.sku}
         self.product_cache_by_barcode = {p.barcode: p for p in products if p.barcode}
         
+        # 🆕 BASE SKU CACHE - CSV formatındaki SKU'lar için
+        # Örnek: BYK-24Y-144779 → 144779 ile eşleşsin
+        #        144236Siyah → 144236 ile eşleşsin
+        self.product_cache_by_base_sku = {}
+        for product in products:
+            if product.sku:
+                base = extract_base_sku(product.sku)
+                if base and base != product.sku:
+                    # Aynı base SKU'ya birden fazla ürün gelebilir (varyantlar)
+                    # İlk bulduğumuzu kullan (genelde en güncel)
+                    if base not in self.product_cache_by_base_sku:
+                        self.product_cache_by_base_sku[base] = product
+        
         logger.info(
             f"📦 Memory cache loaded: {len(self.product_cache)} products "
-            f"({len(self.product_cache_by_barcode)} with barcodes)"
+            f"({len(self.product_cache_by_barcode)} with barcodes, "
+            f"{len(self.product_cache_by_base_sku)} base SKU mappings)"
         )
         
         # 2. Disk cache güncelle (sadece cost bilgileri)
