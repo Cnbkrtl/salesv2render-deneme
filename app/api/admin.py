@@ -495,3 +495,158 @@ async def check_date_data(date: str):
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
     finally:
         db.close()
+
+
+@router.get("/debug/trendyol-today")
+async def debug_trendyol_today(
+    date: Optional[str] = Query(None, description="Tarih (YYYY-MM-DD), default: bugün")
+):
+    """
+    🔍 Trendyol bugünkü siparişlerini RAW API'den çeker ve karşılaştırır
+    
+    Trendyol Panel'deki sayılarla karşılaştırma yapar:
+    - Net Sipariş: Kaç tane orderNumber unique
+    - Net Satış Adedi: Toplam quantity
+    - Net Ciro: Toplam amount (iptal hariç)
+    """
+    try:
+        # Tarih belirleme
+        if date:
+            check_date = datetime.strptime(date, "%Y-%m-%d").date()
+        else:
+            check_date = datetime.now().date()
+        
+        logger.info(f"🔍 Checking Trendyol orders for: {check_date}")
+        
+        # Sentos client
+        sentos = SentosAPIClient(
+            api_url=settings.SENTOS_API_URL,
+            api_key=settings.SENTOS_API_KEY,
+            api_secret=settings.SENTOS_API_SECRET
+        )
+        
+        # Bugünün siparişlerini çek (start_date = end_date = bugün)
+        start_str = check_date.strftime("%Y-%m-%d")
+        end_str = (check_date + timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        logger.info(f"📡 Fetching from Sentos API: {start_str} to {end_str}")
+        
+        orders = sentos.get_all_orders(
+            start_date=start_str,
+            end_date=end_str,
+            marketplace="TRENDYOL",
+            page_size=200
+        )
+        
+        logger.info(f"📦 Fetched {len(orders)} orders from API")
+        
+        # Analiz
+        unique_order_numbers = set()
+        total_quantity = 0
+        total_amount = 0.0
+        status_counts = {}
+        iptal_count = 0
+        aktif_count = 0
+        
+        order_details = []
+        
+        for order in orders:
+            order_number = order.get('order_number')
+            status = order.get('status')
+            
+            if order_number:
+                unique_order_numbers.add(order_number)
+            
+            # Status sayımı
+            status_counts[status] = status_counts.get(status, 0) + 1
+            
+            # İptal mi?
+            is_cancelled = status in [6, 99, "6", "99", "Cancelled", "Unsupplied"]
+            
+            if is_cancelled:
+                iptal_count += 1
+            else:
+                aktif_count += 1
+            
+            # Items
+            items = order.get('items', [])
+            order_total_qty = 0
+            order_total_amount = 0.0
+            
+            for item in items:
+                qty = item.get('quantity', 0)
+                price = item.get('price', 0) or item.get('unit_price', 0)
+                
+                order_total_qty += qty
+                order_total_amount += (qty * price)
+                
+                if not is_cancelled:
+                    total_quantity += qty
+                    total_amount += (qty * price)
+            
+            order_details.append({
+                "order_number": order_number,
+                "status": status,
+                "is_cancelled": is_cancelled,
+                "items_count": len(items),
+                "total_quantity": order_total_qty,
+                "total_amount": round(order_total_amount, 2)
+            })
+        
+        # Database'den kontrol
+        db = SessionLocal()
+        try:
+            db_orders = db.query(SalesOrder).filter(
+                SalesOrder.marketplace == "Trendyol",
+                SalesOrder.order_date >= datetime.combine(check_date, datetime.min.time()),
+                SalesOrder.order_date < datetime.combine(check_date + timedelta(days=1), datetime.min.time())
+            ).all()
+            
+            db_net_orders = [o for o in db_orders if o.status not in [6, 99]]
+            db_iptal_orders = [o for o in db_orders if o.status in [6, 99]]
+            
+            db_items = []
+            for order in db_net_orders:
+                items = db.query(SalesOrderItem).filter(SalesOrderItem.order_id == order.id).all()
+                db_items.extend(items)
+            
+            db_total_qty = sum(item.quantity for item in db_items)
+            db_total_amount = sum((item.quantity * item.unit_price) for item in db_items)
+            
+        finally:
+            db.close()
+        
+        # Karşılaştırma
+        return {
+            "date": str(check_date),
+            "api_data": {
+                "total_orders_fetched": len(orders),
+                "unique_order_numbers": len(unique_order_numbers),
+                "aktif_orders": aktif_count,
+                "iptal_orders": iptal_count,
+                "net_quantity": total_quantity,
+                "net_amount": round(total_amount, 2)
+            },
+            "database_data": {
+                "total_orders": len(db_orders),
+                "aktif_orders": len(db_net_orders),
+                "iptal_orders": len(db_iptal_orders),
+                "total_items": len(db_items),
+                "total_quantity": db_total_qty,
+                "total_amount": round(db_total_amount, 2)
+            },
+            "status_distribution": status_counts,
+            "comparison": {
+                "orders_match": len(unique_order_numbers) == len(db_orders),
+                "quantity_match": total_quantity == db_total_qty,
+                "amount_match": round(total_amount, 2) == round(db_total_amount, 2),
+                "orders_diff": len(unique_order_numbers) - len(db_orders),
+                "quantity_diff": total_quantity - db_total_qty,
+                "amount_diff": round(total_amount - db_total_amount, 2)
+            },
+            "order_samples": order_details[:10]  # İlk 10 sipariş örneği
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Trendyol debug error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
