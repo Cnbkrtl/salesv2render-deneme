@@ -100,6 +100,11 @@ class TrendyolDataFetcherService:
             
             logger.info(f"✅ Filtered to {len(filtered_packages)} packages by orderDate (was {len(packages)})")
             
+            # DEBUG: İlk paketi incele
+            if filtered_packages:
+                import json
+                logger.info("🔍 First Trendyol API package: %s", json.dumps(filtered_packages[0], ensure_ascii=False, indent=2))
+            
             # 🔄 YENİ: Packages'leri orderNumber'a göre grupla
             # 1 OrderNumber = 1 SalesOrder (birden fazla paket olabilir)
             orders_map = {}

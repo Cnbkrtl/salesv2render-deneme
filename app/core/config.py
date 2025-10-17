@@ -2,49 +2,53 @@
 Application Configuration
 Çevre değişkenlerinden yapılandırma yüklenir
 """
+
 from pydantic_settings import BaseSettings
 from typing import Optional
 from functools import lru_cache
+from pydantic import Field
 
 
 class Settings(BaseSettings):
     """Uygulama ayarları"""
     
     # Application
-    app_name: str = "Sales Analytics API v2"
-    app_version: str = "2.0.0"
-    debug: bool = False
-    log_level: str = "INFO"
-    
+
+    app_name: str = Field("Sales Analytics API v2", alias="APP_NAME")
+    app_version: str = Field("2.0.0", alias="APP_VERSION")
+    debug: bool = Field(False, alias="DEBUG")
+    log_level: str = Field("INFO", alias="LOG_LEVEL")
+
     # Server
-    host: str = "0.0.0.0"
-    port: int = 8000
-    
+    host: str = Field("0.0.0.0", alias="HOST")
+    port: int = Field(8000, alias="PORT")
+
     # Sentos API
-    sentos_api_url: str
-    sentos_api_key: str
-    sentos_api_secret: str
-    sentos_cookie: Optional[str] = None
-    
+    sentos_api_url: str = Field(..., alias="SENTOS_API_URL")
+    sentos_api_key: str = Field(..., alias="SENTOS_API_KEY")
+    sentos_api_secret: str = Field(..., alias="SENTOS_API_SECRET")
+    sentos_cookie: Optional[str] = Field(None, alias="SENTOS_COOKIE")
+
     # Trendyol API
-    trendyol_api_url: str = "https://apigw.trendyol.com"
-    trendyol_supplier_id: Optional[str] = None
-    trendyol_api_key: Optional[str] = None
-    trendyol_api_secret: Optional[str] = None
-    
+    trendyol_api_url: str = Field("https://apigw.trendyol.com", alias="TRENDYOL_API_URL")
+    trendyol_supplier_id: Optional[str] = Field(None, alias="TRENDYOL_SUPPLIER_ID")
+    trendyol_api_key: Optional[str] = Field(None, alias="TRENDYOL_API_KEY")
+    trendyol_api_secret: Optional[str] = Field(None, alias="TRENDYOL_API_SECRET")
+
     # Database
-    database_url: str = "sqlite:///./sales_analytics_v2.db"
-    
+    database_url: str = Field("sqlite:///./sales_analytics_v2.db", alias="DATABASE_URL")
+
     # Security
-    api_key: str
-    
+    api_key: str = Field(..., alias="API_KEY")
+
     # CORS
-    allowed_origins: str = "*"
+    allowed_origins: str = Field("*", alias="ALLOWED_ORIGINS")
     
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        env_prefix = ""
 
 
 @lru_cache()

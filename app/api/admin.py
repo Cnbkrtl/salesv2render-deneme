@@ -502,93 +502,168 @@ async def debug_trendyol_today(
     date: Optional[str] = Query(None, description="Tarih (YYYY-MM-DD), default: bugün")
 ):
     """
-    🔍 Trendyol bugünkü siparişlerini RAW API'den çeker ve karşılaştırır
-    
-    Trendyol Panel'deki sayılarla karşılaştırma yapar:
-    - Net Sipariş: Kaç tane orderNumber unique
-    - Net Satış Adedi: Toplam quantity
-    - Net Ciro: Toplam amount (iptal hariç)
+    🔍 Trendyol bugünkü siparişlerini SADECE Trendyol API'den çeker ve karşılaştırır
     """
+    from connectors.trendyol_client import TrendyolAPIClient
+    from datetime import datetime as dt
     try:
         # Tarih belirleme
         if date:
-            check_date = datetime.strptime(date, "%Y-%m-%d").date()
+            check_date = dt.strptime(date, "%Y-%m-%d").date()
         else:
-            check_date = datetime.now().date()
+            check_date = dt.now().date()
         
         logger.info(f"🔍 Checking Trendyol orders for: {check_date}")
         
-        # Sentos client
-        sentos = SentosAPIClient(
-            api_url=settings.SENTOS_API_URL,
-            api_key=settings.SENTOS_API_KEY,
-            api_secret=settings.SENTOS_API_SECRET
+        # Trendyol client
+        trendyol = TrendyolAPIClient(
+            api_url=settings.trendyol_api_url,
+            supplier_id=settings.trendyol_supplier_id,
+            api_key=settings.trendyol_api_key,
+            api_secret=settings.trendyol_api_secret
         )
         
         # Bugünün siparişlerini çek (start_date = end_date = bugün)
         start_str = check_date.strftime("%Y-%m-%d")
         end_str = (check_date + timedelta(days=1)).strftime("%Y-%m-%d")
         
-        logger.info(f"📡 Fetching from Sentos API: {start_str} to {end_str}")
+        logger.info(f"📡 Fetching from Trendyol API: {start_str} to {end_str}")
         
-        orders = sentos.get_all_orders(
-            start_date=start_str,
-            end_date=end_str,
-            marketplace="TRENDYOL",
-            page_size=200
+        packages = trendyol.get_orders_by_date_range(
+            start_date=dt.strptime(start_str, "%Y-%m-%d"),
+            end_date=dt.strptime(end_str, "%Y-%m-%d")
         )
         
-        logger.info(f"📦 Fetched {len(orders)} orders from API")
+        logger.info(f"📦 Fetched {len(packages)} Trendyol packages from API")
         
-        # Analiz
-        unique_order_numbers = set()
-        total_quantity = 0
-        total_amount = 0.0
+        # DEBUG: İlk paketi loga yaz
+        if packages:
+            import json
+            logger.info("🔍 First Trendyol API package: %s", json.dumps(packages[0], ensure_ascii=False, indent=2))
+        
+        # 🎯 CRITICAL FIX: Trendyol API orderDate'i GMT+3 timezone'unda veriyor
+        # Sistem timestamp'i naive (local timezone) olarak hesaplıyor
+        # GMT+3'e çevirmek için 3 SAAT EKLEMELIYIZ
+        from datetime import datetime as dt_calc
+        
+        # Local naive timestamp hesapla
+        check_date_naive_start = dt_calc.combine(check_date, dt_calc.min.time())
+        check_date_naive_end = dt_calc.combine(check_date + timedelta(days=1), dt_calc.min.time())
+        
+        # GMT+3 timezone için 3 saat (10800 saniye) EKLE
+        # Örnek: 18 Ekim 00:00 naive = 1760734800000
+        #        18 Ekim 00:00 GMT+3 = 1760745600000 (+ 10800000 ms)
+        gmt3_offset_ms = 3 * 60 * 60 * 1000  # 10800000 milliseconds
+        check_date_start_ts = int(check_date_naive_start.timestamp() * 1000) + gmt3_offset_ms
+        check_date_end_ts = int(check_date_naive_end.timestamp() * 1000) + gmt3_offset_ms
+        
+        logger.info(f"🔍 Filtering by orderDate: {check_date_start_ts} to {check_date_end_ts}")
+        
+        filtered_packages = []
+        for pkg in packages:
+            order_date_ts = pkg.get('orderDate', 0)
+            if check_date_start_ts <= order_date_ts < check_date_end_ts:
+                filtered_packages.append(pkg)
+        
+        logger.info(f"✅ Filtered to {len(filtered_packages)} packages (was {len(packages)}) by orderDate")
+        
+        # 🔄 Paketleri orderNumber'a göre grupla
+        from collections import defaultdict
+        orders_map = defaultdict(list)
+        for pkg in filtered_packages:
+            order_number = pkg.get('orderNumber')
+            if order_number:
+                orders_map[order_number].append(pkg)
+        
+        logger.info(f"📊 Grouped into {len(orders_map)} unique orders from {len(filtered_packages)} packages")
+        
+        # DEBUG: Shipped siparişlerinin orderDate'lerini kontrol et
+        shipped_orders_debug = []
+        for pkg in filtered_packages:
+            if pkg.get('status') == 'Shipped':
+                order_date_ts = pkg.get('orderDate', 0)
+                order_date_readable = dt.fromtimestamp(order_date_ts / 1000).strftime('%Y-%m-%d %H:%M:%S') if order_date_ts else 'N/A'
+                shipped_orders_debug.append({
+                    'orderNumber': pkg.get('orderNumber'),
+                    'orderDate': order_date_readable,
+                    'orderDate_ts': order_date_ts
+                })
+        if shipped_orders_debug:
+            import json
+            logger.info(f"🚢 Shipped orders (count: {len(shipped_orders_debug)}): {json.dumps(shipped_orders_debug[:5], ensure_ascii=False, indent=2)}")
+        
+        # Analiz - Sipariş bazında
+        # NET = Brüt - İptal/İade
+        total_quantity = 0  # NET adet
+        total_amount = 0.0  # NET ciro
+        
+        iptal_quantity = 0  # İptal/İade adet
+        iptal_amount = 0.0  # İptal/İade ciro
+        
+        brut_quantity = 0  # Brüt adet (tümü)
+        brut_amount = 0.0  # Brüt ciro (tümü)
+        
         status_counts = {}
         iptal_count = 0
         aktif_count = 0
         
         order_details = []
         
-        for order in orders:
-            order_number = order.get('order_number')
-            status = order.get('status')
-            
-            if order_number:
-                unique_order_numbers.add(order_number)
+        for order_number, pkgs in orders_map.items():
+            # Bir siparişin birden fazla paketi olabilir
+            # İlk paketin statusunu al (hepsi aynı olmalı)
+            first_pkg = pkgs[0]
+            status = first_pkg.get('status')
             
             # Status sayımı
-            status_counts[status] = status_counts.get(status, 0) + 1
+            if status not in status_counts:
+                status_counts[status] = 0
+            status_counts[status] += 1
             
             # İptal mi?
-            is_cancelled = status in [6, 99, "6", "99", "Cancelled", "Unsupplied"]
+            is_cancelled = status in ["Cancelled", "UnSupplied", "Returned"]
             
             if is_cancelled:
                 iptal_count += 1
             else:
                 aktif_count += 1
             
-            # Items
-            items = order.get('items', [])
+            # Tüm paketlerdeki items'ları topla
             order_total_qty = 0
             order_total_amount = 0.0
+            order_items_count = 0
             
-            for item in items:
-                qty = item.get('quantity', 0)
-                price = item.get('price', 0) or item.get('unit_price', 0)
+            for package in pkgs:
+                # Items - Trendyol'da 'lines' veya 'orderLines' olabilir
+                items = package.get('lines', package.get('orderLines', []))
+                order_items_count += len(items)
                 
-                order_total_qty += qty
-                order_total_amount += (qty * price)
-                
-                if not is_cancelled:
-                    total_quantity += qty
-                    total_amount += (qty * price)
+                for item in items:
+                    qty = item.get('quantity', 0)
+                    price = item.get('price', 0) or item.get('unitPrice', 0)
+                    
+                    order_total_qty += qty
+                    order_total_amount += (qty * price)
+            
+            # Brüt toplam (hepsi)
+            brut_quantity += order_total_qty
+            brut_amount += order_total_amount
+            
+            # İptal/İade ayrı topla
+            if is_cancelled:
+                iptal_quantity += order_total_qty
+                iptal_amount += order_total_amount
+            else:
+                # NET toplama ekle (iptal değilse)
+                total_quantity += order_total_qty
+                total_amount += order_total_amount
             
             order_details.append({
                 "order_number": order_number,
                 "status": status,
                 "is_cancelled": is_cancelled,
-                "items_count": len(items),
+                "package_count": len(pkgs),
+                "items_count": order_items_count,
                 "total_quantity": order_total_qty,
                 "total_amount": round(order_total_amount, 2)
             })
@@ -598,12 +673,12 @@ async def debug_trendyol_today(
         try:
             db_orders = db.query(SalesOrder).filter(
                 SalesOrder.marketplace == "Trendyol",
-                SalesOrder.order_date >= datetime.combine(check_date, datetime.min.time()),
-                SalesOrder.order_date < datetime.combine(check_date + timedelta(days=1), datetime.min.time())
+                SalesOrder.order_date >= dt.combine(check_date, dt.min.time()),
+                SalesOrder.order_date < dt.combine(check_date + timedelta(days=1), dt.min.time())
             ).all()
             
-            db_net_orders = [o for o in db_orders if o.status not in [6, 99]]
-            db_iptal_orders = [o for o in db_orders if o.status in [6, 99]]
+            db_net_orders = [o for o in db_orders if o.order_status not in [6, 99]]
+            db_iptal_orders = [o for o in db_orders if o.order_status in [6, 99]]
             
             db_items = []
             for order in db_net_orders:
@@ -620,12 +695,28 @@ async def debug_trendyol_today(
         return {
             "date": str(check_date),
             "api_data": {
-                "total_orders_fetched": len(orders),
-                "unique_order_numbers": len(unique_order_numbers),
-                "aktif_orders": aktif_count,
-                "iptal_orders": iptal_count,
+                "total_packages_raw": len(packages),
+                "total_packages_today": len(filtered_packages),
+                "unique_order_numbers": len(orders_map),
+                
+                # Brüt (Tüm siparişler)
+                "brut_orders": len(orders_map),
+                "brut_quantity": brut_quantity,
+                "brut_amount": round(brut_amount, 2),
+                
+                # İptal/İade
+                "iptal_iade_orders": iptal_count,
+                "iptal_iade_quantity": iptal_quantity,
+                "iptal_iade_amount": round(iptal_amount, 2),
+                
+                # NET = Brüt - İptal/İade
+                "net_orders": aktif_count,
                 "net_quantity": total_quantity,
-                "net_amount": round(total_amount, 2)
+                "net_amount": round(total_amount, 2),
+                
+                # Eski alan isimleri (geriye dönük uyumluluk)
+                "aktif_orders": aktif_count,
+                "iptal_orders": iptal_count
             },
             "database_data": {
                 "total_orders": len(db_orders),
@@ -637,16 +728,277 @@ async def debug_trendyol_today(
             },
             "status_distribution": status_counts,
             "comparison": {
-                "orders_match": len(unique_order_numbers) == len(db_orders),
+                "orders_match": len(orders_map) == len(db_orders),
                 "quantity_match": total_quantity == db_total_qty,
                 "amount_match": round(total_amount, 2) == round(db_total_amount, 2),
-                "orders_diff": len(unique_order_numbers) - len(db_orders),
+                "orders_diff": len(orders_map) - len(db_orders),
                 "quantity_diff": total_quantity - db_total_qty,
                 "amount_diff": round(total_amount - db_total_amount, 2)
             },
-            "order_samples": order_details[:10]  # İlk 10 sipariş örneği
+            "all_orders": order_details,  # TÜM siparişler
+            "order_samples": order_details[:10]  # İlk 10 sipariş örneği (eski)
         }
         
     except Exception as e:
         logger.error(f"❌ Trendyol debug error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@router.get("/debug/sentos-today")
+async def debug_sentos_today(
+    date: Optional[str] = Query(None, description="Tarih (YYYY-MM-DD), default: bugün")
+):
+    """
+    🔍 Sentos'tan bugünkü siparişleri çeker (Trendyol HARİÇ - diğer marketplace'ler)
+    """
+    from connectors.sentos_client import SentosAPIClient
+    from datetime import datetime as dt, timedelta
+    try:
+        # Tarih belirleme
+        if date:
+            check_date = dt.strptime(date, "%Y-%m-%d").date()
+        else:
+            check_date = dt.now().date()
+        
+        logger.info(f"🔍 Checking Sentos orders (excluding Trendyol) for: {check_date}")
+        
+        # Sentos client
+        sentos = SentosAPIClient(
+            api_url=settings.sentos_api_url,
+            api_key=settings.sentos_api_key,
+            api_secret=settings.sentos_api_secret,
+            api_cookie=getattr(settings, 'sentos_api_cookie', None)
+        )
+        
+        # GENİŞ ARALIK: Son 7 günü çek (iadeler için makul süre)
+        # İadeleri yakalamak için geniş tarih aralığı gerekli ama 30 gün çok fazla
+        api_start_date = (check_date - timedelta(days=7)).strftime("%Y-%m-%d")
+        api_end_date = (check_date + timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        logger.info(f"📡 Fetching from Sentos API: {api_start_date} to {api_end_date} (7-day range for returns)")
+        
+        # Sentos'tan tüm siparişleri çek
+        all_orders = sentos.get_all_orders(
+            start_date=api_start_date,
+            end_date=api_end_date,
+            max_pages=10  # 7 günlük veri için 10 sayfa yeterli
+        )
+        
+        logger.info(f"📦 Fetched {len(all_orders)} total orders from Sentos")
+        
+        # DEBUG: İlk siparişi göster
+        if all_orders:
+            import json
+            logger.info(f"🔍 First Sentos order: {json.dumps(all_orders[0], ensure_ascii=False, indent=2)}")
+        
+        # Trendyol'u ÇIKAR - sadece diğer marketplace'leri göster
+        # Sentos'ta marketplace alanı 'source' veya 'shop' olabilir
+        # DAHA SIKI FİLTRE: source, shop, shop_id kontrolü
+        filtered_orders = []
+        trendyol_count = 0
+        for order in all_orders:
+            source = (order.get('source') or '').lower()
+            shop = (order.get('shop') or '').lower()
+            marketplace = (order.get('marketplace') or '').lower()
+            shop_id = order.get('shop_id')
+            
+            # Trendyol tespiti - herhangi birinde 'trendyol' varsa atla
+            is_trendyol = (
+                'trendyol' in source or
+                'trendyol' in shop or
+                'trendyol' in marketplace or
+                shop_id == 2  # Trendyol shop_id genelde 2
+            )
+            
+            if is_trendyol:
+                trendyol_count += 1
+            else:
+                filtered_orders.append(order)
+        
+        logger.info(f"🚫 Filtered out {trendyol_count} Trendyol orders")
+        
+        # DEBUG: Kalan siparişlerde hangi marketplace'ler var?
+        remaining_marketplaces = {}
+        cancelled_orders_debug = []
+        for order in filtered_orders:
+            mp = order.get('source') or order.get('shop') or order.get('marketplace') or 'Unknown'
+            status = order.get('status')
+            key = f"{mp} (status:{status})"
+            remaining_marketplaces[key] = remaining_marketplaces.get(key, 0) + 1
+            
+            # İptal/iade olanları logla - ORDER_DATE VE CREATED_AT'I GÖR
+            # NOT: Status 5 = Kargoya Verilmiş (normal sipariş), Status 6 = İptal
+            if status in [6]:  # Sadece 6 = İptal/İade
+                import json
+                cancelled_orders_debug.append({
+                    'order_code': order.get('order_code'),
+                    'status': status,
+                    'order_date': order.get('order_date'),
+                    'created_at': order.get('created_at'),
+                    'source': mp
+                })
+        
+        if cancelled_orders_debug:
+            import json
+            logger.warning(f"⚠️ Cancelled orders found: {json.dumps(cancelled_orders_debug, ensure_ascii=False)}")
+        
+        logger.info(f"📊 Remaining orders by marketplace: {remaining_marketplaces}")
+        logger.info(f"✅ Filtered to {len(filtered_orders)} orders (Trendyol excluded)")
+        
+        # 🎯 Sentos'tan gelen siparişleri de orderDate'e göre filtrele
+        # GMT+3 timezone kullan (Trendyol ile aynı mantık)
+        from datetime import datetime as dt_calc
+        
+        check_date_naive_start = dt_calc.combine(check_date, dt_calc.min.time())
+        check_date_naive_end = dt_calc.combine(check_date + timedelta(days=1), dt_calc.min.time())
+        
+        gmt3_offset_ms = 3 * 60 * 60 * 1000
+        check_date_start_ts = int(check_date_naive_start.timestamp() * 1000) + gmt3_offset_ms
+        check_date_end_ts = int(check_date_naive_end.timestamp() * 1000) + gmt3_offset_ms
+        
+        logger.info(f"🔍 Filtering by date range: {check_date_start_ts} to {check_date_end_ts}")
+        
+        # Tarih alanına göre filtrele - SADECE order_date kullan (sipariş tarihi)
+        # İadeler: order_date = orijinal sipariş tarihi, o günün raporuna dahil olmalı
+        date_filtered_orders = []
+        for order in filtered_orders:
+            # SADECE order_date kullan - created_at değil!
+            # created_at = Sentos'a girilme tarihi (iade için iade tarihi)
+            # order_date = Müşterinin sipariş verdiği tarih (bunu kullanmalıyız)
+            order_date_str = order.get('order_date')
+            if not order_date_str:
+                logger.warning(f"⚠️ Order {order.get('order_code')} has no order_date, skipping")
+                continue
+            
+            try:
+                # String tarih parse et
+                if 'T' in order_date_str:
+                    order_dt = dt.strptime(order_date_str.split('.')[0], '%Y-%m-%dT%H:%M:%S')
+                else:
+                    # Sadece tarih kısmını al (saat varsa)
+                    date_part = order_date_str.split(' ')[0]
+                    order_dt = dt.strptime(date_part, '%Y-%m-%d')
+                
+                order_date_ts = int(order_dt.timestamp() * 1000) + gmt3_offset_ms
+                
+                if check_date_start_ts <= order_date_ts < check_date_end_ts:
+                    date_filtered_orders.append(order)
+            except Exception as e:
+                logger.warning(f"⚠️ Could not parse date '{order_date_str}': {e}")
+                continue
+        
+        logger.info(f"✅ Date filtered to {len(date_filtered_orders)} orders (was {len(filtered_orders)})")
+        
+        filtered_orders = date_filtered_orders
+        
+        # Marketplace'lere göre grupla
+        marketplace_data = {}
+        
+        for order in filtered_orders:
+            # Sentos'ta marketplace 'source' veya 'shop' alanında olabilir
+            marketplace = order.get('marketplace') or order.get('source') or order.get('shop') or 'Unknown'
+            status = str(order.get('status', 'Unknown'))  # String'e çevir
+            
+            if marketplace not in marketplace_data:
+                marketplace_data[marketplace] = {
+                    'total_orders': 0,
+                    'brut_orders': 0,
+                    'brut_quantity': 0,
+                    'brut_amount': 0.0,
+                    'iptal_orders': 0,
+                    'iptal_quantity': 0,
+                    'iptal_amount': 0.0,
+                    'net_orders': 0,
+                    'net_quantity': 0,
+                    'net_amount': 0.0,
+                    'status_counts': {}
+                }
+            
+            mp_data = marketplace_data[marketplace]
+            
+            # Status sayımı
+            if status not in mp_data['status_counts']:
+                mp_data['status_counts'][status] = 0
+            mp_data['status_counts'][status] += 1
+            
+            # İptal/İade kontrolü - Sentos status codes
+            # Sentos Status Kodları:
+            # 1 = Onay Bekliyor, 2 = Onaylandı, 3 = Tedarik Sürecinde
+            # 4 = Hazırlanıyor, 5 = Kargoya Verildi, 99 = Teslim Edildi
+            # 6 = İptal Edildi ← SADECE BU İPTAL!
+            # NOT: Trendyol siparişleri zaten filtrelendi, bunlar LCW/Shopify/vb.
+            status_str = str(status).lower()
+            is_cancelled = (
+                status in [6, '6'] or  # Sadece 6 = İptal Edildi
+                any(
+                    keyword in status_str 
+                    for keyword in ['cancelled', 'iptal', 'unsupplied', 'cancel']
+                )
+            )
+            
+            # Sipariş detayları
+            # Sentos'ta items 'lines' array'inde
+            items = order.get('lines', order.get('items', []))
+            order_qty = 0
+            order_amount = 0.0
+            
+            for item in items:
+                qty = int(item.get('quantity', 0))
+                # Price string olabilir, float'a çevir
+                price_str = item.get('price', '0')
+                try:
+                    price = float(price_str) if isinstance(price_str, str) else float(price_str or 0)
+                except (ValueError, TypeError):
+                    price = 0.0
+                
+                order_qty += qty
+                order_amount += (qty * price)
+            
+            # Brüt toplam
+            mp_data['brut_orders'] += 1
+            mp_data['brut_quantity'] += order_qty
+            mp_data['brut_amount'] += order_amount
+            
+            if is_cancelled:
+                # İptal/İade
+                mp_data['iptal_orders'] += 1
+                mp_data['iptal_quantity'] += order_qty
+                mp_data['iptal_amount'] += order_amount
+            else:
+                # Net
+                mp_data['net_orders'] += 1
+                mp_data['net_quantity'] += order_qty
+                mp_data['net_amount'] += order_amount
+            
+            mp_data['total_orders'] += 1
+        
+        # Float değerleri yuvarlama
+        for mp, data in marketplace_data.items():
+            data['brut_amount'] = round(data['brut_amount'], 2)
+            data['iptal_amount'] = round(data['iptal_amount'], 2)
+            data['net_amount'] = round(data['net_amount'], 2)
+        
+        # Toplam özet
+        total_summary = {
+            'brut_orders': sum(d['brut_orders'] for d in marketplace_data.values()),
+            'brut_quantity': sum(d['brut_quantity'] for d in marketplace_data.values()),
+            'brut_amount': round(sum(d['brut_amount'] for d in marketplace_data.values()), 2),
+            'iptal_orders': sum(d['iptal_orders'] for d in marketplace_data.values()),
+            'iptal_quantity': sum(d['iptal_quantity'] for d in marketplace_data.values()),
+            'iptal_amount': round(sum(d['iptal_amount'] for d in marketplace_data.values()), 2),
+            'net_orders': sum(d['net_orders'] for d in marketplace_data.values()),
+            'net_quantity': sum(d['net_quantity'] for d in marketplace_data.values()),
+            'net_amount': round(sum(d['net_amount'] for d in marketplace_data.values()), 2)
+        }
+        
+        return {
+            "date": str(check_date),
+            "total_orders_fetched": len(all_orders),
+            "orders_after_trendyol_filter": len(filtered_orders),
+            "total_summary": total_summary,
+            "by_marketplace": marketplace_data
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Sentos debug error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
