@@ -222,16 +222,75 @@ class TrendyolDataFetcherService:
             packages: Bu orderNumber'a ait tüm shipment packages
         
         Returns:
-            Number of items stored
+            Number of items stored/updated
         """
         # Sipariş zaten var mı kontrol et (orderNumber bazlı)
-        existing = db.query(SalesOrder).filter(
+        existing_order = db.query(SalesOrder).filter(
             SalesOrder.trendyol_order_number == order_number
         ).first()
         
-        if existing:
-            logger.debug(f"   Order {order_number} already exists, skipping")
-            return 0
+        if existing_order:
+            # ✅ UPDATE MANTIĞI: Eğer mevcut itemlerin komisyonu düşülmemişse güncelle
+            logger.debug(f"   Order {order_number} already exists, checking for updates...")
+            
+            # Mevcut itemleri kontrol et
+            existing_items = db.query(SalesOrderItem).filter(
+                SalesOrderItem.order_id == existing_order.id
+            ).all()
+            
+            # Yeni paketlerden itemleri topla
+            new_items_data = []
+            for package in packages:
+                for line in package.get('lines', []):
+                    amount_gross = line.get('amount') or 0.0
+                    commission = line.get('commission') or 0.0
+                    amount_net = amount_gross - commission
+                    new_items_data.append({
+                        'line_id': line.get('id'),
+                        'amount_net': amount_net,
+                        'commission': commission
+                    })
+            
+            # Eğer item sayısı farklıysa veya komisyon değerleri farklıysa UPDATE gerekli
+            needs_update = False
+            
+            if len(existing_items) != len(new_items_data):
+                needs_update = True
+                logger.info(f"   📊 Order {order_number}: Item count mismatch ({len(existing_items)} vs {len(new_items_data)})")
+            else:
+                # Komisyon değerlerini karşılaştır
+                for existing_item in existing_items:
+                    # Yeni item_amount hesapla (komisyon düşülmüş olmalı)
+                    if existing_item.unit_price and existing_item.quantity:
+                        expected_gross = existing_item.unit_price * existing_item.quantity
+                        expected_commission = existing_item.commission_amount or 0
+                        expected_net = expected_gross - expected_commission
+                        
+                        # Eğer mevcut item_amount brüt tutara eşitse (komisyon düşülmemişse)
+                        if abs((existing_item.item_amount or 0) - expected_gross) < 0.01:
+                            needs_update = True
+                            logger.info(f"   💰 Order {order_number}: Commission not deducted, updating...")
+                            break
+            
+            if not needs_update:
+                logger.debug(f"   ✅ Order {order_number} is up-to-date, skipping")
+                return 0
+            
+            # UPDATE: Mevcut siparişi ve itemlerini sil, yeniden ekle
+            logger.info(f"   🔄 Updating order {order_number}...")
+            
+            # Önce itemleri sil
+            db.query(SalesOrderItem).filter(
+                SalesOrderItem.order_id == existing_order.id
+            ).delete(synchronize_session=False)
+            
+            # Siparişi sil
+            db.query(SalesOrder).filter(
+                SalesOrder.id == existing_order.id
+            ).delete(synchronize_session=False)
+            
+            db.commit()
+            logger.debug(f"   🗑️  Old data deleted for order {order_number}")
         
         # İlk paketten ana bilgileri al (tüm paketler aynı sipariş)
         first_package = packages[0]
