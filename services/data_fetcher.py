@@ -278,6 +278,13 @@ class DataFetcherService:
             unique_orders = {order['id']: order for order in all_orders}.values()
             logger.info(f"Total unique orders: {len(unique_orders)}")
             
+            # 📊 MARKETPLACE DAĞILIMI (debug için)
+            marketplace_counts = {}
+            for order in unique_orders:
+                source = order.get('source', 'UNKNOWN')
+                marketplace_counts[source] = marketplace_counts.get(source, 0) + 1
+            logger.info(f"📊 Marketplace distribution: {marketplace_counts}")
+            
             # Her siparişi işle
             total_items = 0
             COMMIT_BATCH_SIZE = 50  # Optimize edilmiş batch size
@@ -424,7 +431,9 @@ class DataFetcherService:
         
         # Kargo
         cargo_provider = order.get('cargo_provider', '')
-        cargo_number = order.get('cargo_number', '')
+        cargo_number_raw = order.get('cargo_number', '')
+        # BIGINT hatası önleme: Boş string'i None'a çevir
+        cargo_number = int(cargo_number_raw) if cargo_number_raw and str(cargo_number_raw).strip() else None
         
         # Fatura
         has_invoice = order.get('has_invoice', 'no')
