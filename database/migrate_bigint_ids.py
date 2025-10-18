@@ -56,21 +56,20 @@ def migrate_to_bigint():
             conn.commit()
             logger.info("✅ sentos_order_id -> BIGINT")
             
-            logger.info("📊 Converting order_code to BIGINT...")
-            conn.execute(text("""
-                ALTER TABLE sales_orders 
-                ALTER COLUMN order_code TYPE BIGINT USING order_code::BIGINT
-            """))
-            conn.commit()
-            logger.info("✅ order_code -> BIGINT")
+            # SKIP order_code - it contains mixed data (numeric cargo_tracking OR string order_number)
+            logger.info("⏭️  Skipping order_code (contains mixed string/numeric data)")
             
             logger.info("📊 Converting cargo_number to BIGINT...")
             conn.execute(text("""
                 ALTER TABLE sales_orders 
-                ALTER COLUMN cargo_number TYPE BIGINT USING cargo_number::BIGINT
+                ALTER COLUMN cargo_number TYPE BIGINT 
+                USING CASE 
+                    WHEN cargo_number ~ '^[0-9]+$' THEN cargo_number::BIGINT 
+                    ELSE NULL 
+                END
             """))
             conn.commit()
-            logger.info("✅ cargo_number -> BIGINT")
+            logger.info("✅ cargo_number -> BIGINT (non-numeric values set to NULL)")
             
             # sentos_order_items tablosundaki ilgili kolonlar
             logger.info("📊 Converting sales_order_items.sentos_order_id to BIGINT...")

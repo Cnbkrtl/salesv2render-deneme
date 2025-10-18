@@ -18,21 +18,27 @@ Trendyol API'den gelen bazı değerler PostgreSQL'in `INTEGER` tipinin limitini 
 ```python
 # ÖNCE (INTEGER):
 sentos_order_id = Column(Integer, ...)      # ❌ 2.1 milyar limit
-order_code = Column(String(100), ...)        # ❌ Sayı değil string olarak
+order_code = Column(String(100), ...)        # ✅ String (karma: sayı veya text)
 cargo_number = Column(String(100), ...)      # ❌ Sayı değil string olarak
 
 # SONRA (BIGINT):
 sentos_order_id = Column(BigInteger, ...)    # ✅ 9.2 quintillion limit
-order_code = Column(BigInteger, ...)         # ✅ Doğru tip
-cargo_number = Column(BigInteger, ...)       # ✅ Doğru tip
+order_code = Column(String(100), ...)        # ✅ String KALSIN (karma kullanım)
+cargo_number = Column(BigInteger, ...)       # ✅ Sayısal tip
 ```
+
+**Not:** `order_code` string kaldı çünkü karma veri içeriyor:
+- Eğer cargo tracking varsa: `7270027060328352` (sayısal)
+- Eğer yoksa: `"10605513807"` (sipariş numarası - string)
+
 
 ### 2. Migration script (`database/migrate_bigint_ids.py`)
 **PostgreSQL için:**
 ```sql
 ALTER TABLE sales_orders ALTER COLUMN sentos_order_id TYPE BIGINT;
-ALTER TABLE sales_orders ALTER COLUMN order_code TYPE BIGINT;
-ALTER TABLE sales_orders ALTER COLUMN cargo_number TYPE BIGINT;
+-- order_code SKIPPED (karma string/numeric veri)
+ALTER TABLE sales_orders ALTER COLUMN cargo_number TYPE BIGINT 
+  USING CASE WHEN cargo_number ~ '^[0-9]+$' THEN cargo_number::BIGINT ELSE NULL END;
 ALTER TABLE sales_order_items ALTER COLUMN sentos_order_id TYPE BIGINT;
 ALTER TABLE sales_order_items ALTER COLUMN sentos_item_id TYPE BIGINT;
 ```
@@ -71,8 +77,8 @@ python database/migrate_bigint_ids.py
 
 ### `sales_orders` table:
 - ✅ `sentos_order_id` → BIGINT (Trendyol package ID)
-- ✅ `order_code` → BIGINT (Cargo tracking number)
-- ✅ `cargo_number` → BIGINT (Cargo tracking number)
+- ⏭️ `order_code` → STRING (Mixed: cargo tracking OR order number)
+- ✅ `cargo_number` → BIGINT (Cargo tracking number - nullable)
 
 ### `sales_order_items` table:
 - ✅ `sentos_order_id` → BIGINT (Foreign key reference)

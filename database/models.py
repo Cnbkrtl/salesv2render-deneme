@@ -82,7 +82,7 @@ class SalesOrder(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     sentos_order_id = Column(BigInteger, unique=True, index=True, nullable=False)  # BIGINT - Trendyol package IDs exceed INTEGER limit
-    order_code = Column(BigInteger, index=True)  # BIGINT - Cargo tracking numbers are 16 digits
+    order_code = Column(String(100), index=True)  # STRING - Mixed: cargo tracking (numeric) or order number (string)
     
     # Trendyol-specific IDs (nullable for non-Trendyol orders)
     trendyol_shipment_package_id = Column(BigInteger, unique=True, index=True, nullable=True)
