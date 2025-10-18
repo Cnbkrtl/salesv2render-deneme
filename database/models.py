@@ -81,8 +81,8 @@ class SalesOrder(Base):
     __tablename__ = "sales_orders"
 
     id = Column(Integer, primary_key=True, index=True)
-    sentos_order_id = Column(Integer, unique=True, index=True, nullable=False)
-    order_code = Column(String(100), index=True)
+    sentos_order_id = Column(BigInteger, unique=True, index=True, nullable=False)  # BIGINT - Trendyol package IDs exceed INTEGER limit
+    order_code = Column(BigInteger, index=True)  # BIGINT - Cargo tracking numbers are 16 digits
     
     # Trendyol-specific IDs (nullable for non-Trendyol orders)
     trendyol_shipment_package_id = Column(BigInteger, unique=True, index=True, nullable=True)
@@ -104,7 +104,7 @@ class SalesOrder(Base):
     
     # Kargo bilgileri
     cargo_provider = Column(String(100))
-    cargo_number = Column(String(100))
+    cargo_number = Column(BigInteger)  # BIGINT - Cargo tracking numbers are 16 digits
     
     # Fatura
     has_invoice = Column(String(10))
@@ -133,8 +133,8 @@ class SalesOrderItem(Base):
     
     # Foreign keys
     order_id = Column(Integer, nullable=False, index=True)  # sales_orders.id ile join
-    sentos_order_id = Column(Integer, nullable=False, index=True)  # Referans
-    sentos_item_id = Column(Integer, index=True)
+    sentos_order_id = Column(BigInteger, nullable=False, index=True)  # BIGINT - Referans to sentos_order_id
+    sentos_item_id = Column(BigInteger, index=True)  # BIGINT - Trendyol line IDs can be large
     
     # Trendyol-specific ID (nullable for non-Trendyol items)
     trendyol_order_line_id = Column(BigInteger, index=True, nullable=True)
