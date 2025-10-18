@@ -121,7 +121,7 @@ async def startup_event():
     except Exception as e:
         logger.error(f"❌ Database initialization error: {e}")
     
-    # Run database migrations (add missing columns)
+    # Run database migrations (add missing columns + BIGINT)
     try:
         from sqlalchemy import text
         from database import SessionLocal
@@ -130,7 +130,7 @@ async def startup_event():
         db = SessionLocal()
         
         try:
-            # Check if 'images' column exists in products table
+            # 1. Check if 'images' column exists in products table
             result = db.execute(text("""
                 SELECT column_name 
                 FROM information_schema.columns 
@@ -147,10 +147,36 @@ async def startup_event():
                 """))
                 db.commit()
                 logger.info("   ✅ Column 'products.images' added successfully!")
+            
+            # 2. Check if BIGINT migration needed
+            result = db.execute(text("""
+                SELECT data_type 
+                FROM information_schema.columns 
+                WHERE table_name='sales_orders' AND column_name='sentos_order_id'
+            """))
+            
+            row = result.fetchone()
+            if row and row[0] == 'integer':
+                logger.info("   📝 Migrating to BIGINT (Trendyol ID overflow fix)...")
+                
+                # sales_orders migrations
+                db.execute(text("ALTER TABLE sales_orders ALTER COLUMN sentos_order_id TYPE BIGINT"))
+                db.execute(text("ALTER TABLE sales_orders ALTER COLUMN trendyol_shipment_package_id TYPE BIGINT"))
+                
+                # sales_order_items migrations
+                db.execute(text("ALTER TABLE sales_order_items ALTER COLUMN sentos_order_id TYPE BIGINT"))
+                db.execute(text("ALTER TABLE sales_order_items ALTER COLUMN sentos_item_id TYPE BIGINT"))
+                db.execute(text("ALTER TABLE sales_order_items ALTER COLUMN trendyol_order_line_id TYPE BIGINT"))
+                
+                db.commit()
+                logger.info("   ✅ BIGINT migration completed successfully!")
+            else:
+                logger.info("   ✓ BIGINT migration already applied")
+                
         except Exception as migrate_error:
             error_msg = str(migrate_error).lower()
             if 'already exists' in error_msg or 'duplicate column' in error_msg:
-                logger.info("   ✓ Column 'products.images' already exists")
+                logger.info("   ✓ Migrations already applied")
             elif 'information_schema' in error_msg:
                 # SQLite doesn't have information_schema, skip check
                 logger.info("   ℹ️  SQLite detected, skipping migration check")

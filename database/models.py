@@ -4,7 +4,6 @@ Database Models - NORMALIZE VE OPTİMİZE EDİLMİŞ
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Float, DateTime, Text, Boolean, Index
 )
-from sqlalchemy.orm import deferred
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from datetime import datetime
