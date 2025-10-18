@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { syncProducts, fetchSalesData, getSyncStatus, triggerFullSync, triggerLiveSync, syncTrendyolOrders, testTrendyolConnection, type SyncStatus, type TrendyolSyncResponse, type TrendyolTestConnectionResponse } from '../lib/api-service';
+import { syncProducts, fetchSalesData, getSyncStatus, triggerFullSync, triggerLiveSync, syncTrendyolOrders, getTrendyolSyncStatus, testTrendyolConnection, type SyncStatus, type TrendyolSyncResponse, type TrendyolSyncStatusResponse, type TrendyolTestConnectionResponse } from '../lib/api-service';
 import { Database, Download, Settings as SettingsIcon, Clock, RefreshCw, ShoppingBag } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -159,18 +159,59 @@ const Settings: React.FC = () => {
     setError(null);
     setSuccess(null);
     try {
-      const result = await syncTrendyolOrders(trendyolDays);
-      setSuccess(`✅ ${result.orders_fetched} Trendyol siparişi senkronize edildi! (${result.items_stored} item)`);
-      setTrendyolLastSync(result.timestamp);
-      setTimeout(() => setSuccess(null), 5000);
+      // Başlat (hemen dönüş)
+      const startResult = await syncTrendyolOrders(trendyolDays);
+      
+      if (startResult.status === 'started') {
+        setSuccess(`🔄 Trendyol senkronizasyonu başlatıldı! Lütfen bekleyin...`);
+        
+        // Polling: Her 2 saniyede status kontrol et
+        const checkStatus = async () => {
+          try {
+            const status = await getTrendyolSyncStatus();
+            
+            if (!status.running) {
+              // Tamamlandı!
+              if (status.result) {
+                setSuccess(`✅ ${status.result.orders_fetched} Trendyol siparişi senkronize edildi! (${status.result.items_stored} item)`);
+                setTrendyolLastSync(status.result.timestamp);
+                setTrendyolSyncing(false);
+              } else if (status.error) {
+                setError(`❌ Trendyol sync hatası: ${status.error}`);
+                setTrendyolSyncing(false);
+              }
+              setTimeout(() => {
+                setSuccess(null);
+                setError(null);
+              }, 5000);
+            } else {
+              // Hala çalışıyor - progress göster
+              setSuccess(`🔄 ${status.progress}`);
+              // 2 saniye sonra tekrar kontrol et
+              setTimeout(checkStatus, 2000);
+            }
+          } catch (err) {
+            console.error('Status check error:', err);
+            setError('Durum kontrolü başarısız');
+            setTrendyolSyncing(false);
+            setTimeout(() => setError(null), 5000);
+          }
+        };
+        
+        // İlk kontrol 2 saniye sonra
+        setTimeout(checkStatus, 2000);
+      } else {
+        setError('Beklenmeyen yanıt');
+        setTrendyolSyncing(false);
+        setTimeout(() => setError(null), 5000);
+      }
     } catch (err) {
       const errorMessage = (err as any).response?.data?.detail || 
                           (err as any).message || 
                           'Trendyol senkronizasyonu başarısız';
       setError(errorMessage);
-      setTimeout(() => setError(null), 5000);
-    } finally {
       setTrendyolSyncing(false);
+      setTimeout(() => setError(null), 5000);
     }
   };
 

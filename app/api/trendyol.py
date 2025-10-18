@@ -2,7 +2,7 @@
 Trendyol API Endpoint
 Manuel Trendyol sync tetikleme
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 import asyncio
@@ -15,20 +15,104 @@ from app.core.config import get_settings
 router = APIRouter(prefix="/api/trendyol", tags=["Trendyol"])
 logger = logging.getLogger(__name__)
 
+# 🆕 Global status tracker for background sync
+trendyol_sync_status = {
+    "running": False,
+    "progress": "",
+    "start_time": None,
+    "result": None,
+    "error": None
+}
+
+
+async def _run_trendyol_sync_background(days: int):
+    """Background task: Trendyol sync işlemini çalıştırır"""
+    global trendyol_sync_status
+    
+    try:
+        trendyol_sync_status["running"] = True
+        trendyol_sync_status["progress"] = "Başlatılıyor..."
+        trendyol_sync_status["start_time"] = datetime.now().isoformat()
+        trendyol_sync_status["result"] = None
+        trendyol_sync_status["error"] = None
+        
+        settings = get_settings()
+        start_time = datetime.now()
+        
+        logger.info(f"🟠 Background Trendyol sync başlatıldı (son {days} gün)")
+        trendyol_sync_status["progress"] = f"Trendyol API'ye bağlanılıyor..."
+        
+        # Trendyol client oluştur
+        trendyol_client = TrendyolAPIClient(
+            supplier_id=settings.trendyol_supplier_id,
+            api_key=settings.trendyol_api_key,
+            api_secret=settings.trendyol_api_secret
+        )
+        
+        # Trendyol data fetcher oluştur
+        trendyol_fetcher = TrendyolDataFetcherService(trendyol_client=trendyol_client)
+        
+        # Tarih aralığını hesapla
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        
+        trendyol_sync_status["progress"] = f"Veriler çekiliyor (son {days} gün)..."
+        
+        # Veri çek ve kaydet
+        result = await asyncio.to_thread(
+            trendyol_fetcher.fetch_and_store_trendyol_orders,
+            start_date=start_date,
+            end_date=end_date,
+            statuses=None  # Tüm statusler
+        )
+        
+        duration = (datetime.now() - start_time).total_seconds()
+        
+        logger.info(f"✅ Trendyol sync tamamlandı: {result.get('orders_fetched', 0)} sipariş ({duration:.1f}s)")
+        
+        trendyol_sync_status["result"] = {
+            "status": "success",
+            "orders_fetched": result.get('orders_fetched', 0),
+            "items_stored": result.get('items_stored', 0),
+            "duration_seconds": round(duration, 2),
+            "date_range": {
+                "start_date": start_date.strftime('%Y-%m-%d'),
+                "end_date": end_date.strftime('%Y-%m-%d'),
+                "days": days
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        trendyol_sync_status["progress"] = "Tamamlandı ✅"
+        
+    except Exception as e:
+        logger.error(f"❌ Background Trendyol sync hatası: {e}", exc_info=True)
+        trendyol_sync_status["error"] = str(e)
+        trendyol_sync_status["progress"] = f"Hata: {str(e)}"
+    finally:
+        trendyol_sync_status["running"] = False
+
 
 @router.post("/sync")
 async def sync_trendyol_orders(
+    background_tasks: BackgroundTasks,
     days: int = Query(default=14, ge=1, le=90, description="Son kaç günün verisi çekilecek (1-90 arası)")
 ) -> Dict[str, Any]:
     """
-    Manuel Trendyol sipariş senkronizasyonu
+    Manuel Trendyol sipariş senkronizasyonu (Background Task)
+    
+    **Özellikler:**
+    - Background'da çalışır, hemen cevap döner (timeout yok!)
+    - İlerleme ve sonuç için `/api/trendyol/sync-status` endpoint'ini kullanın
+    - Aynı anda sadece 1 sync çalışabilir
     
     Args:
         days: Son kaç günün verisi çekilecek (varsayılan: 14, maksimum: 90)
     
     Returns:
-        Sync sonuçları (sipariş sayısı, item sayısı, süre)
+        Sync başlatıldı mesajı (sonuç için sync-status endpoint'i kullanın)
     """
+    global trendyol_sync_status
+    
     try:
         settings = get_settings()
         
@@ -47,56 +131,54 @@ async def sync_trendyol_orders(
                 detail=f"Trendyol API credentials eksik: {', '.join(missing)}"
             )
         
-        start_time = datetime.now()
-        logger.info(f"🟠 Manuel Trendyol sync başlatıldı (son {days} gün)")
+        # Eğer bir sync zaten çalışıyorsa
+        if trendyol_sync_status["running"]:
+            raise HTTPException(
+                status_code=409,
+                detail="Trendyol sync zaten çalışıyor. Lütfen tamamlanmasını bekleyin."
+            )
         
-        # Trendyol client oluştur
-        trendyol_client = TrendyolAPIClient(
-            supplier_id=settings.trendyol_supplier_id,
-            api_key=settings.trendyol_api_key,
-            api_secret=settings.trendyol_api_secret
-        )
+        # Background task başlat
+        background_tasks.add_task(_run_trendyol_sync_background, days)
         
-        # Trendyol data fetcher oluştur
-        trendyol_fetcher = TrendyolDataFetcherService(trendyol_client=trendyol_client)
-        
-        # Tarih aralığını hesapla
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-        
-        # Veri çek ve kaydet
-        result = await asyncio.to_thread(
-            trendyol_fetcher.fetch_and_store_trendyol_orders,
-            start_date=start_date,
-            end_date=end_date,
-            statuses=None  # Tüm statusler
-        )
-        
-        duration = (datetime.now() - start_time).total_seconds()
-        
-        logger.info(f"✅ Trendyol sync tamamlandı: {result.get('orders_fetched', 0)} sipariş ({duration:.1f}s)")
+        logger.info(f"🟠 Trendyol sync background task'ı başlatıldı (son {days} gün)")
         
         return {
-            "status": "success",
-            "orders_fetched": result.get('orders_fetched', 0),
-            "items_stored": result.get('items_stored', 0),
-            "duration_seconds": round(duration, 2),
-            "date_range": {
-                "start_date": start_date.strftime('%Y-%m-%d'),
-                "end_date": end_date.strftime('%Y-%m-%d'),
-                "days": days
-            },
+            "status": "started",
+            "message": f"Trendyol sync background'da başlatıldı (son {days} gün)",
+            "days": days,
+            "check_status_url": "/api/trendyol/sync-status",
             "timestamp": datetime.now().isoformat()
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Trendyol sync hatası: {e}", exc_info=True)
+        logger.error(f"❌ Trendyol sync başlatma hatası: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Trendyol sync sırasında hata oluştu: {str(e)}"
+            detail=f"Trendyol sync başlatılamadı: {str(e)}"
         )
+
+
+@router.get("/sync-status")
+async def get_trendyol_sync_status() -> Dict[str, Any]:
+    """
+    Trendyol sync durumunu kontrol et
+    
+    Returns:
+        Sync durumu, ilerleme ve sonuç (varsa)
+    """
+    global trendyol_sync_status
+    
+    return {
+        "running": trendyol_sync_status["running"],
+        "progress": trendyol_sync_status["progress"],
+        "start_time": trendyol_sync_status["start_time"],
+        "result": trendyol_sync_status["result"],
+        "error": trendyol_sync_status["error"],
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 @router.get("/test-connection")

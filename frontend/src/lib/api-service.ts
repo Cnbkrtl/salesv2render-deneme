@@ -174,14 +174,26 @@ export const triggerLiveSync = async (): Promise<{status: string; message: strin
 
 export interface TrendyolSyncResponse {
   status: string;
-  orders_fetched: number;
-  items_stored: number;
-  duration_seconds: number;
-  date_range: {
+  orders_fetched?: number;
+  items_stored?: number;
+  duration_seconds?: number;
+  message?: string;
+  days?: number;
+  check_status_url?: string;
+  date_range?: {
     start_date: string;
     end_date: string;
     days: number;
   };
+  timestamp: string;
+}
+
+export interface TrendyolSyncStatusResponse {
+  running: boolean;
+  progress: string;
+  start_time: string | null;
+  result: TrendyolSyncResponse | null;
+  error: string | null;
   timestamp: string;
 }
 
@@ -199,9 +211,15 @@ export interface TrendyolTestConnectionResponse {
   timestamp: string;
 }
 
-// Sync Trendyol orders
+// Sync Trendyol orders (Background Task - hemen dönüş)
 export const syncTrendyolOrders = async (days: number = 7): Promise<TrendyolSyncResponse> => {
   const response = await apiClient.post(`/api/trendyol/sync?days=${days}`);
+  return response.data;
+};
+
+// Get Trendyol sync status
+export const getTrendyolSyncStatus = async (): Promise<TrendyolSyncStatusResponse> => {
+  const response = await apiClient.get('/api/trendyol/sync-status');
   return response.data;
 };
 
