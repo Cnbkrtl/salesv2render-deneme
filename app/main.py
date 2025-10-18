@@ -117,9 +117,50 @@ async def startup_event():
     try:
         from database import Base, engine
         Base.metadata.create_all(bind=engine)
-        logger.info("OK Database initialized")
+        logger.info("✅ Database initialized")
     except Exception as e:
-        logger.error(f"ERROR Database initialization error: {e}")
+        logger.error(f"❌ Database initialization error: {e}")
+    
+    # Run database migrations (add missing columns)
+    try:
+        from sqlalchemy import text
+        from database import SessionLocal
+        
+        logger.info("🔧 Checking for database migrations...")
+        db = SessionLocal()
+        
+        try:
+            # Check if 'images' column exists in products table
+            result = db.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name='products' AND column_name='images'
+            """))
+            
+            if result.fetchone():
+                logger.info("   ✓ Column 'products.images' exists")
+            else:
+                logger.info("   📝 Adding missing column 'products.images'...")
+                db.execute(text("""
+                    ALTER TABLE products 
+                    ADD COLUMN images TEXT DEFAULT '[]'
+                """))
+                db.commit()
+                logger.info("   ✅ Column 'products.images' added successfully!")
+        except Exception as migrate_error:
+            error_msg = str(migrate_error).lower()
+            if 'already exists' in error_msg or 'duplicate column' in error_msg:
+                logger.info("   ✓ Column 'products.images' already exists")
+            elif 'information_schema' in error_msg:
+                # SQLite doesn't have information_schema, skip check
+                logger.info("   ℹ️  SQLite detected, skipping migration check")
+            else:
+                logger.warning(f"   ⚠️  Migration check failed: {migrate_error}")
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"❌ Migration error: {e}")
     
     # Start scheduled sync service
     logger.info("🔄 Attempting to start scheduler...")
