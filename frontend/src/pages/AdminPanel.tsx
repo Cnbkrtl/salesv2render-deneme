@@ -184,6 +184,50 @@ const AdminPanel: React.FC = () => {
     }
   };
 
+  const handleManualFullSync = async () => {
+    if (!window.confirm('🔄 MANUEL TAM SYNC\n\nSon 7 günün verisi yeniden sync edilecek. Devam?')) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const response = await apiClient.post('/api/sync/trigger/full');
+      setResult(`✅ Manuel tam sync başlatıldı!\n\nSync arka planda çalışıyor, 2-3 dakika içinde tamamlanacak.`);
+      
+      // 3 saniye sonra stats'ı refresh et
+      setTimeout(() => loadStats(), 3000);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Manuel sync başarısız!');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleManualLiveSync = async () => {
+    if (!window.confirm('🔴 CANLI SYNC\n\nSadece bugünün verisi sync edilecek. Devam?')) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const response = await apiClient.post('/api/sync/trigger/live');
+      setResult(`✅ Canlı sync başlatıldı!\n\nSync arka planda çalışıyor, yaklaşık 30 saniye sürecek.`);
+      
+      // 2 saniye sonra stats'ı refresh et
+      setTimeout(() => loadStats(), 2000);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Canlı sync başarısız!');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-gray-100 to-gray-200 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-all duration-500">
       <div className="max-w-7xl mx-auto p-6 space-y-8">
@@ -359,7 +403,77 @@ const AdminPanel: React.FC = () => {
         )}
 
         {/* Actions - Modern Card Design */}
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* MANUEL OTO-SYNC - TAM SYNC */}
+          <Card className="border-2 border-green-400 dark:border-green-600 hover:shadow-2xl transition-all duration-300 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20">
+            <CardHeader className="border-b-2 border-green-200 dark:border-green-800">
+              <CardTitle className="flex items-center gap-3 text-2xl">
+                <RefreshCw className="h-6 w-6 text-green-600 dark:text-green-400" />
+                <span className="text-green-900 dark:text-green-100">Manuel Tam Sync</span>
+              </CardTitle>
+              <CardDescription className="text-base dark:text-gray-400">
+                Son 7 günün verisi (oto-sync mantığı)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="space-y-4">
+                <div className="text-sm space-y-3 p-4 bg-green-100 dark:bg-green-900/30 rounded-lg border dark:border-green-800">
+                  <p className="font-semibold text-green-900 dark:text-green-100">🔄 Bu işlem:</p>
+                  <ul className="list-disc list-inside space-y-2 text-gray-700 dark:text-gray-300">
+                    <li>Son 7 günün verisini sync eder</li>
+                    <li>Ürünler + Tüm Siparişler</li>
+                    <li>Mevcut veriyi KORUR (sadece günceller)</li>
+                    <li>~2-3 dakika sürer</li>
+                  </ul>
+                </div>
+
+                <Button
+                  onClick={handleManualFullSync}
+                  disabled={loading}
+                  className="w-full h-12 text-base font-semibold bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 dark:from-green-500 dark:to-emerald-500 shadow-lg hover:shadow-xl transition-all duration-300"
+                >
+                  <RefreshCw className={`mr-2 h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
+                  Tam Sync Başlat (7 Gün)
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* MANUEL OTO-SYNC - CANLI SYNC */}
+          <Card className="border-2 border-orange-400 dark:border-orange-600 hover:shadow-2xl transition-all duration-300 bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20">
+            <CardHeader className="border-b-2 border-orange-200 dark:border-orange-800">
+              <CardTitle className="flex items-center gap-3 text-2xl">
+                <Clock className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+                <span className="text-orange-900 dark:text-orange-100">Canlı Sync</span>
+              </CardTitle>
+              <CardDescription className="text-base dark:text-gray-400">
+                Sadece bugünün verisi (hızlı)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="space-y-4">
+                <div className="text-sm space-y-3 p-4 bg-orange-100 dark:bg-orange-900/30 rounded-lg border dark:border-orange-800">
+                  <p className="font-semibold text-orange-900 dark:text-orange-100">🔴 Bu işlem:</p>
+                  <ul className="list-disc list-inside space-y-2 text-gray-700 dark:text-gray-300">
+                    <li>Sadece bugünün verisini sync eder</li>
+                    <li>Çok hızlı (~30 saniye)</li>
+                    <li>Güncel sipariş takibi için ideal</li>
+                    <li>Her 10 dakikada otomatik çalışır</li>
+                  </ul>
+                </div>
+
+                <Button
+                  onClick={handleManualLiveSync}
+                  disabled={loading}
+                  className="w-full h-12 text-base font-semibold bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-700 hover:to-amber-700 dark:from-orange-500 dark:to-amber-500 shadow-lg hover:shadow-xl transition-all duration-300"
+                >
+                  <Clock className={`mr-2 h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
+                  Canlı Sync Başlat (Bugün)
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Full Resync */}
           <Card className="border-2 border-blue-300 dark:border-blue-700 hover:shadow-2xl transition-all duration-300 bg-white dark:bg-gray-800">
             <CardHeader className="border-b-2 border-blue-100 dark:border-blue-900">

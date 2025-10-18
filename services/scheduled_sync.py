@@ -100,15 +100,17 @@ class ScheduledSyncService:
         # ⚠️ STARTUP'TA OTOMATIK ÇALIŞMASIN!
         # İlk sync sadece manuel olarak (admin panel) veya scheduled time'da
         if self.last_full_sync is None:
-            # Hiç çalışmamışsa, sadece şu anki saat sync time'ını geçmişse çalış
+            # ✅ YENİ MANTIK: Hiç çalışmamışsa, startup sonrası 5 dakika içindeyse
+            # ve saat 02:00'ı geçmişse çalıştır (deployment sonrası recovery)
             current_time = now.time()
-            # Ve son 30 dakika içinde olmalı (startup sonrası hemen çalışmasın)
-            if current_time >= self.full_sync_time:
-                # Sync time'dan 30 dakika geçmişse atla (ertele yarına)
-                sync_datetime = datetime.combine(now.date(), self.full_sync_time)
-                if (now - sync_datetime).total_seconds() > 1800:  # 30 dakika
-                    return False
+            
+            # Saat 02:00 - 03:00 arası startup'sa hemen çalıştır (scheduled sync kaçmış demektir)
+            if self.full_sync_time <= current_time < time(3, 0):
+                logger.info("✅ Startup: Scheduled sync time'ı kaçırmışız, şimdi çalıştır")
                 return True
+            
+            # Diğer saatlerde startup'sa, sadece manuel trigger bekle
+            logger.info(f"⏳ Startup: İlk sync manuel tetikleme veya yarın {self.full_sync_time.strftime('%H:%M')} bekliyor")
             return False
         
         # Son sync bugün değilse ve saat geçtiyse
