@@ -4,6 +4,7 @@ Database Models - NORMALIZE VE OPTİMİZE EDİLMİŞ
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Float, DateTime, Text, Boolean, Index
 )
+from sqlalchemy.orm import deferred
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -27,7 +28,7 @@ class Product(Base):
     brand = Column(String(200))
     barcode = Column(String(100), index=True)
     image = Column(String(500))  # Ürün görseli URL (deprecated, use images)
-    images = Column(Text, default='[]')  # JSON array of image URLs (PostgreSQL: JSONB, SQLite: TEXT)
+    images = Column(Text, default='[]', nullable=True)  # JSON array of image URLs (PostgreSQL: JSONB, SQLite: TEXT) - NULLABLE for backward compatibility
     
     # Cost information - MALİYET BİLGİSİ
     purchase_price = Column(Float, default=0.0)  # KDV'siz alış fiyatı

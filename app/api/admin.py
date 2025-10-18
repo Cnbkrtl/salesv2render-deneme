@@ -334,6 +334,58 @@ async def get_resync_status():
     }
 
 
+@router.post("/migrate-database")
+async def migrate_database():
+    """
+    🔧 Database migration: Add missing columns
+    Production database için eksik kolonları ekler
+    """
+    from sqlalchemy import text
+    db = SessionLocal()
+    try:
+        results = []
+        
+        # Check and add 'images' column to products
+        try:
+            # Try to check if column exists (PostgreSQL)
+            result = db.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name='products' AND column_name='images'
+            """))
+            
+            if result.fetchone():
+                results.append({"column": "products.images", "status": "exists", "message": "Column already exists"})
+            else:
+                # Add column
+                db.execute(text("""
+                    ALTER TABLE products 
+                    ADD COLUMN images TEXT DEFAULT '[]'
+                """))
+                db.commit()
+                results.append({"column": "products.images", "status": "added", "message": "Column added successfully"})
+        except Exception as e:
+            error_msg = str(e).lower()
+            if 'already exists' in error_msg or 'duplicate column' in error_msg:
+                results.append({"column": "products.images", "status": "exists", "message": "Column already exists"})
+            else:
+                results.append({"column": "products.images", "status": "error", "message": str(e)})
+        
+        return {
+            "success": True,
+            "migrations": results
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Migration error: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e)
+        }
+    finally:
+        db.close()
+
+
 @router.get("/database-stats")
 async def database_stats():
     """
