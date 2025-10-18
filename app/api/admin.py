@@ -282,7 +282,7 @@ def _sync_products():
 def _sync_orders(start_date: str, end_date: str):
     """Sync helper: Orders sync (Sentos + Trendyol)"""
     from connectors.trendyol_client import TrendyolAPIClient
-    from services.trendyol_data_fetcher import TrendyolDataFetcher
+    from services.trendyol_data_fetcher import TrendyolDataFetcherService
     
     # 1. SENTOS SYNC
     sentos = SentosAPIClient(
@@ -306,7 +306,7 @@ def _sync_orders(start_date: str, end_date: str):
         api_key=settings.trendyol_api_key,
         api_secret=settings.trendyol_api_secret
     )
-    trendyol_fetcher = TrendyolDataFetcher(trendyol_client=trendyol)
+    trendyol_fetcher = TrendyolDataFetcherService(trendyol_client=trendyol)
     
     trendyol_result = trendyol_fetcher.fetch_and_store_trendyol_orders(
         start_date=start_date,
