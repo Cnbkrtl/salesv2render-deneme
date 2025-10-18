@@ -371,11 +371,14 @@ class TrendyolDataFetcherService:
         # Fiyat bilgileri (None kontrolü!)
         unit_price = line.get('price') or 0.0
         discount = line.get('discount') or 0.0
-        amount = line.get('amount') or (unit_price * quantity)
+        amount_gross = line.get('amount') or (unit_price * quantity)  # BRÜT tutar
         
         # Commission (None-safe)
         commission_amount = line.get('commission') or 0.0
-        commission_rate = (commission_amount / amount * 100) if (amount and amount > 0) else 0.0
+        commission_rate = (commission_amount / amount_gross * 100) if (amount_gross and amount_gross > 0) else 0.0
+        
+        # NET TUTAR (komisyon düşülmüş) - Trendyol paneli ile uyumlu
+        amount_net = amount_gross - commission_amount
         
         item = SalesOrderItem(
             order_id=order.id,
@@ -392,7 +395,7 @@ class TrendyolDataFetcherService:
             item_status='rejected' if is_return else 'accepted',
             quantity=quantity,
             unit_price=unit_price,
-            item_amount=amount,
+            item_amount=amount_net,  # ✅ NET tutar (komisyon düşülmüş)
             unit_cost_with_vat=unit_cost,
             total_cost_with_vat=unit_cost * quantity,
             commission_rate=commission_rate,
