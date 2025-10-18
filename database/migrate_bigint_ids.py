@@ -60,11 +60,12 @@ def migrate_to_bigint():
             logger.info("⏭️  Skipping order_code (contains mixed string/numeric data)")
             
             logger.info("📊 Converting cargo_number to BIGINT...")
+            # PostgreSQL: VARCHAR → BIGINT için önce regex kontrol, sonra cast
             conn.execute(text("""
                 ALTER TABLE sales_orders 
                 ALTER COLUMN cargo_number TYPE BIGINT 
                 USING CASE 
-                    WHEN cargo_number ~ '^[0-9]+$' THEN cargo_number::BIGINT 
+                    WHEN cargo_number::TEXT ~ '^[0-9]+$' THEN cargo_number::BIGINT 
                     ELSE NULL 
                 END
             """))
