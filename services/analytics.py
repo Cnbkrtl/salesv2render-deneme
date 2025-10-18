@@ -131,7 +131,18 @@ class AnalyticsService:
         # İptal/İade items
         iptal_iade_items = [item for item in items if item.order_id in iptal_iade_order_ids]
         
-        iptal_iade_ciro = sum(item.item_amount for item in iptal_iade_items)
+        # Order -> Marketplace mapping
+        order_to_mp = {order.id: order.marketplace for order in orders}
+        
+        # İptal/İade ciro - Trendyol için NET (komisyon düşülmüş)
+        iptal_iade_ciro = 0.0
+        for item in iptal_iade_items:
+            marketplace = order_to_mp.get(item.order_id, '')
+            if marketplace == 'Trendyol':
+                iptal_iade_ciro += (item.item_amount or 0.0) - (item.commission_amount or 0.0)
+            else:
+                iptal_iade_ciro += (item.item_amount or 0.0)
+        
         iptal_iade_adet = sum(item.quantity for item in iptal_iade_items)
         iptal_iade_siparis_sayisi = len(iptal_iade_order_ids)
         
@@ -139,10 +150,23 @@ class AnalyticsService:
         iptal_items = [item for item in iptal_iade_items if item.item_status == "accepted"]
         iade_items = [item for item in iptal_iade_items if item.item_status == "rejected"]
         
-        iptal_ciro = sum(item.item_amount for item in iptal_items)
+        # İptal/İade alt kırılımlarında da Trendyol kontrolü
+        iptal_ciro = 0.0
+        for item in iptal_items:
+            marketplace = order_to_mp.get(item.order_id, '')
+            if marketplace == 'Trendyol':
+                iptal_ciro += (item.item_amount or 0.0) - (item.commission_amount or 0.0)
+            else:
+                iptal_ciro += (item.item_amount or 0.0)
         iptal_adet = sum(item.quantity for item in iptal_items)
         
-        iade_ciro = sum(item.item_amount for item in iade_items)
+        iade_ciro = 0.0
+        for item in iade_items:
+            marketplace = order_to_mp.get(item.order_id, '')
+            if marketplace == 'Trendyol':
+                iade_ciro += (item.item_amount or 0.0) - (item.commission_amount or 0.0)
+            else:
+                iade_ciro += (item.item_amount or 0.0)
         iade_adet = sum(item.quantity for item in iade_items)
         
         # NET Metrikler (iptal/iade HARİÇ)
@@ -150,8 +174,19 @@ class AnalyticsService:
         
         net_satilan_adet = sum(item.quantity for item in net_items)
         
-        # ÜRÜN CİROSU
-        net_ciro_urunler = sum(item.item_amount for item in net_items)
+        # ÜRÜN CİROSU - 🆕 Trendyol için komisyon düşülüyor!
+        # Trendyol: item_amount BRÜT (komisyon dahil), komisyon_amount ayrı
+        # Diğerleri: item_amount NET (olduğu gibi)
+        net_ciro_urunler = 0.0
+        order_to_mp = {order.id: order.marketplace for order in orders}
+        for item in net_items:
+            marketplace = order_to_mp.get(item.order_id, '')
+            if marketplace == 'Trendyol':
+                # Trendyol için NET = BRÜT - KOMİSYON
+                net_ciro_urunler += (item.item_amount or 0.0) - (item.commission_amount or 0.0)
+            else:
+                # Diğerleri için item_amount zaten NET
+                net_ciro_urunler += (item.item_amount or 0.0)
         
         # KARGO ÜCRETİ (order level) - Net siparişlerden
         net_orders = [order for order in orders if order.id not in iptal_iade_order_ids]
@@ -245,9 +280,7 @@ class AnalyticsService:
         # Order ID -> Marketplace mapping
         order_to_mp = {order.id: order.marketplace for order in orders}
         
-        # Her marketplace için net ciro hesapla
-        mp_net_ciro = defaultdict(float)
-        
+        # 🆕 TRENDYOL için komisyon database'de var, diğerleri için hesaplıyoruz
         for item in items:
             # Sadece net items (iptal/iade hariç)
             if item.is_cancelled or item.is_return:
@@ -257,19 +290,17 @@ class AnalyticsService:
             if not marketplace:
                 continue
             
-            mp_net_ciro[marketplace] += item.item_amount
+            # Trendyol için komisyon zaten item.commission_amount'ta var
+            if marketplace == 'Trendyol':
+                commissions[marketplace] += (item.commission_amount or 0.0)
+            else:
+                # Diğer marketplace'ler için hesapla
+                commissions[marketplace] += MarketplaceCommission.calculate_commission(
+                    marketplace, 
+                    item.item_amount
+                ) / 100.0  # Rate'i amount'a uygula
         
-        # Komisyon hesapla
-        for marketplace, net_ciro in mp_net_ciro.items():
-            commission = MarketplaceCommission.calculate_commission(marketplace, net_ciro)
-            if commission > 0:
-                commissions[marketplace] = commission
-                logger.debug(
-                    f"Marketplace: {marketplace}, Net Ciro: {net_ciro:.2f}, "
-                    f"Komisyon Rate: {MarketplaceCommission.get_rate(marketplace)}%, "
-                    f"Komisyon: {commission:.2f}"
-                )
-        
+        logger.debug(f"📊 Total commissions calculated: {commissions}")
         return dict(commissions)
     
     def _calculate_by_marketplace(self, orders: List, items: List) -> List[Dict]:

@@ -243,11 +243,14 @@ class TrendyolDataFetcherService:
             for package in packages:
                 for line in package.get('lines', []):
                     amount_gross = line.get('amount') or 0.0
-                    commission = line.get('commission') or 0.0
-                    amount_net = amount_gross - commission
+                    # 🆕 Trendyol API'de commission=null geliyor, kendimiz hesaplıyoruz
+                    commission_rate = 21.5
+                    commission = (amount_gross * commission_rate) / 100.0
+                    # BRÜT tutar (komisyon hesaplanacak)
+                    amount_brut = amount_gross
                     new_items_data.append({
                         'line_id': line.get('id'),
-                        'amount_net': amount_net,
+                        'amount_brut': amount_brut,
                         'commission': commission
                     })
             
@@ -260,16 +263,16 @@ class TrendyolDataFetcherService:
             else:
                 # Komisyon değerlerini karşılaştır
                 for existing_item in existing_items:
-                    # Yeni item_amount hesapla (komisyon düşülmüş olmalı)
+                    # Yeni komisyon hesapla
                     if existing_item.unit_price and existing_item.quantity:
                         expected_gross = existing_item.unit_price * existing_item.quantity
-                        expected_commission = existing_item.commission_amount or 0
-                        expected_net = expected_gross - expected_commission
+                        # Backend'de hesaplanan komisyon (%21.5)
+                        expected_commission = (expected_gross * 21.5) / 100.0
                         
-                        # Eğer mevcut item_amount brüt tutara eşitse (komisyon düşülmemişse)
-                        if abs((existing_item.item_amount or 0) - expected_gross) < 0.01:
+                        # Eğer mevcut komisyon 0 veya çok düşükse (düzgün hesaplanmamış)
+                        if (existing_item.commission_amount or 0) < (expected_commission * 0.5):
                             needs_update = True
-                            logger.info(f"   💰 Order {order_number}: Commission not deducted, updating...")
+                            logger.info(f"   💰 Order {order_number}: Commission not properly calculated, updating...")
                             break
             
             if not needs_update:
@@ -432,12 +435,16 @@ class TrendyolDataFetcherService:
         discount = line.get('discount') or 0.0
         amount_gross = line.get('amount') or (unit_price * quantity)  # BRÜT tutar
         
-        # Commission (None-safe)
-        commission_amount = line.get('commission') or 0.0
-        commission_rate = (commission_amount / amount_gross * 100) if (amount_gross and amount_gross > 0) else 0.0
+        # 🆕 KOMİSYON HESAPLAMASI - Trendyol API'de commission=null geliyor!
+        # Trendyol komisyon oranı: %21.5 (varsayılan)
+        # NOT: Gerçekte Trendyol'da kategori bazlı farklı oranlar olabilir
+        # Ama API'de bu bilgi yok, sabit oran kullanıyoruz
+        commission_rate = 21.5  # %21.5
+        commission_amount = (amount_gross * commission_rate) / 100.0
         
-        # NET TUTAR (komisyon düşülmüş) - Trendyol paneli ile uyumlu
-        amount_net = amount_gross - commission_amount
+        # BRÜT TUTAR (komisyon dahil) - Müşterinin ödediği
+        # item_amount'u brüt olarak saklıyoruz, analytics'te komisyon düşülecek
+        amount_net = amount_gross  # BRÜT kalıyor!
         
         item = SalesOrderItem(
             order_id=order.id,
@@ -454,11 +461,11 @@ class TrendyolDataFetcherService:
             item_status='rejected' if is_return else 'accepted',
             quantity=quantity,
             unit_price=unit_price,
-            item_amount=amount_net,  # ✅ NET tutar (komisyon düşülmüş)
+            item_amount=amount_net,  # ✅ BRÜT tutar (komisyon hesaplanacak)
             unit_cost_with_vat=unit_cost,
             total_cost_with_vat=unit_cost * quantity,
             commission_rate=commission_rate,
-            commission_amount=commission_amount,
+            commission_amount=commission_amount,  # ✅ Backend'de hesaplanan komisyon
             is_return=is_return,
             is_cancelled=(order.order_status == OrderStatus.IPTAL_IADE.value)
         )
