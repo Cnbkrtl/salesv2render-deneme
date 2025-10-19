@@ -154,14 +154,40 @@ def normalize_sku_variants(sku: str) -> list:
     - "S00004064" → ["S00004064", "00004064", "4064"]
     - "00004064" → ["00004064", "4064"]
     - "303760" → ["303760"]
+    - "320315-M48-R15" → ["320315-M48-R15", "320315"]  # 🆕 Base SKU
+    - "103369-M41-R15" → ["103369-M41-R15", "103369"]  # 🆕 Base SKU
+    - "BYK-25K-301796-50-52" → ["BYK-25K-301796-50-52", "BYK-25K-301796"]  # 🆕 Base SKU
     """
     if not sku:
         return []
     
     variants = [sku]  # Orijinal her zaman dahil
     
-    # S prefix'ini kaldır
-    if sku.startswith('S'):
+    # 🆕 1. SUFFIX KALDIRMA (Variant bilgisi: -M48-R15, -50-52 gibi)
+    # Pattern: Sayı/harf-Harf sayı-Harf sayı şeklinde son ekler
+    # Örnek: 320315-M48-R15 → 320315
+    #        BYK-25K-301796-50-52 → BYK-25K-301796
+    if '-' in sku:
+        parts = sku.split('-')
+        # Son iki parçayı kaldır (genellikle variant bilgisi)
+        # 320315-M48-R15 → ['320315', 'M48', 'R15'] → '320315'
+        # BYK-25K-301796-50-52 → ['BYK', '25K', '301796', '50', '52'] → 'BYK-25K-301796'
+        
+        # Eğer son parça kısa (2-3 karakter) ise variant olabilir
+        if len(parts) > 1:
+            # Son kısmı çıkar
+            base_without_last = '-'.join(parts[:-1])
+            if base_without_last and base_without_last != sku:
+                variants.append(base_without_last)
+                
+                # Son 2 kısmı çıkar
+                if len(parts) > 2:
+                    base_without_last2 = '-'.join(parts[:-2])
+                    if base_without_last2 and base_without_last2 != sku:
+                        variants.append(base_without_last2)
+    
+    # 2. S prefix'ini kaldır
+    if sku.startswith('S') and len(sku) > 1 and sku[1].isdigit():
         without_s = sku[1:]
         variants.append(without_s)
         # S'siz halinin de leading zero'suz hali
@@ -170,11 +196,13 @@ def normalize_sku_variants(sku: str) -> list:
             if no_zero != without_s:
                 variants.append(no_zero)
     
-    # Leading zero kaldır (numeric SKU'lar için)
-    if sku.isdigit():
-        no_leading_zero = sku.lstrip('0') or '0'
-        if no_leading_zero != sku:
-            variants.append(no_leading_zero)
+    # 3. Leading zero kaldır (numeric SKU'lar için)
+    if sku[0].isdigit():  # First character is digit
+        # Eğer tamamı sayısal ise
+        if sku.isdigit():
+            no_leading_zero = sku.lstrip('0') or '0'
+            if no_leading_zero != sku:
+                variants.append(no_leading_zero)
     
     return list(set(variants))  # Benzersiz yap
 
