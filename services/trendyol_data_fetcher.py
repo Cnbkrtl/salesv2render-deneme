@@ -67,9 +67,11 @@ class TrendyolDataFetcherService:
                 end_dt = end_date
             
             # Mevcut Trendyol verilerini temizle (istenirse)
+            cleared_orders = 0
             if clear_existing:
-                self._clear_trendyol_data(db, start_dt, end_dt)
+                cleared_orders = self._clear_trendyol_data(db, start_dt, end_dt)
                 db.commit()  # 🆕 Clear sonrası COMMIT - böylece existing check doğru çalışır
+                logger.info(f"✅ Cleared {cleared_orders} existing orders, ready for fresh sync")
             
             # Product cache yükle
             self._load_product_cache(db)
@@ -178,7 +180,13 @@ class TrendyolDataFetcherService:
             
             for order_number, packages_list in orders_map.items():
                 try:
-                    items = self._process_and_store_trendyol_order(db, order_number, packages_list)
+                    # clear_existing=True ise force_insert=True gönder (existing check skip)
+                    items = self._process_and_store_trendyol_order(
+                        db, 
+                        order_number, 
+                        packages_list, 
+                        force_insert=(cleared_orders > 0)  # Clear yapıldıysa force insert
+                    )
                     orders_count += 1
                     items_count += items
                     
@@ -218,7 +226,7 @@ class TrendyolDataFetcherService:
         finally:
             db.close()
     
-    def _clear_trendyol_data(self, db: Session, start_dt: datetime, end_dt: datetime):
+    def _clear_trendyol_data(self, db: Session, start_dt: datetime, end_dt: datetime) -> int:
         """Mevcut Trendyol verilerini temizle"""
         from datetime import timedelta
         
@@ -234,21 +242,25 @@ class TrendyolDataFetcherService:
             SalesOrder.order_date < end_dt_inclusive  # < yerine <= değil, + 1 gün
         ).all()
         
+        order_count = len(trendyol_orders)
+        
         # İlgili item'ları sil
+        items_deleted = 0
         for order in trendyol_orders:
-            db.query(SalesOrderItem).filter(
+            deleted = db.query(SalesOrderItem).filter(
                 SalesOrderItem.order_id == order.id
-            ).delete()
+            ).delete(synchronize_session=False)
+            items_deleted += deleted
         
         # Siparişleri sil
         db.query(SalesOrder).filter(
             SalesOrder.marketplace.like('%Trendyol%'),
             SalesOrder.order_date >= start_dt,
-            SalesOrder.order_date <= end_dt
-        ).delete()
+            SalesOrder.order_date < end_dt_inclusive
+        ).delete(synchronize_session=False)
         
-        db.commit()
-        logger.info(f"   ✓ Cleared {len(trendyol_orders)} Trendyol orders")
+        logger.info(f"   ✓ Cleared {order_count} Trendyol orders, {items_deleted} items")
+        return order_count
     
     def _load_product_cache(self, db: Session):
         """Product cache'i yükle"""
@@ -269,7 +281,8 @@ class TrendyolDataFetcherService:
         self, 
         db: Session, 
         order_number: str, 
-        packages: List[Dict[str, Any]]
+        packages: List[Dict[str, Any]],
+        force_insert: bool = False
     ) -> int:
         """
         Bir Trendyol siparişini işle (birden fazla paketten oluşabilir)
@@ -281,12 +294,17 @@ class TrendyolDataFetcherService:
         Returns:
             Number of items stored/updated
         """
-        # Sipariş zaten var mı kontrol et (orderNumber bazlı)
-        existing_order = db.query(SalesOrder).filter(
-            SalesOrder.trendyol_order_number == order_number
-        ).first()
+        # 🎯 FORCE INSERT: Eğer clear_existing yapıldıysa existing check'i atla
+        if force_insert:
+            logger.debug(f"   🔄 Force insert mode: Skipping existing order check for {order_number}")
+            existing_order = None
+        else:
+            # Sipariş zaten var mı kontrol et (orderNumber bazlı)
+            existing_order = db.query(SalesOrder).filter(
+                SalesOrder.trendyol_order_number == order_number
+            ).first()
         
-        if existing_order:
+        if existing_order and not force_insert:
             # ✅ UPDATE MANTIĞI: Eğer mevcut itemlerin komisyonu düşülmemişse güncelle
             logger.debug(f"   Order {order_number} already exists, checking for updates...")
             
