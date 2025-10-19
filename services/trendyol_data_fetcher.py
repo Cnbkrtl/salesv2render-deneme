@@ -86,13 +86,24 @@ class TrendyolDataFetcherService:
             
             # ⚠️ ÖNEMLİ: API'deki tarih filtresi PackageLastModifiedDate kullanıyor
             # Biz orderDate (sipariş oluşturma tarihi) ile filtrelemek istiyoruz
+            
+            # 🎯 CRITICAL FIX: Trendyol API orderDate GMT+3 timezone'unda
+            # Timestamp karşılaştırması yapmak için GMT+3 offset ekliyoruz
+            from datetime import datetime as dt_calc
+            
+            # Start/end datetime'i timestamp'e çevir ve GMT+3 offset ekle
+            gmt3_offset_ms = 3 * 60 * 60 * 1000  # 10800000 ms (3 saat)
+            start_ts = int(start_dt.timestamp() * 1000) + gmt3_offset_ms
+            end_ts = int(end_dt.timestamp() * 1000) + gmt3_offset_ms + (24 * 60 * 60 * 1000 - 1)  # End gün sonu
+            
+            logger.info(f"🔍 Filtering by orderDate timestamp: {start_ts} to {end_ts}")
+            
             filtered_packages = []
             for package in packages:
                 order_date_ms = package.get('orderDate', 0)
                 if order_date_ms:
-                    order_date = datetime.fromtimestamp(order_date_ms / 1000)
-                    # Tarih aralığında mı kontrol et
-                    if start_dt <= order_date <= end_dt:
+                    # Timestamp karşılaştırması (datetime parse etmeden)
+                    if start_ts <= order_date_ms <= end_ts:
                         filtered_packages.append(package)
                 else:
                     # orderDate yoksa ekle (güvenli taraf)
