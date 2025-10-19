@@ -134,14 +134,11 @@ class AnalyticsService:
         # Order -> Marketplace mapping
         order_to_mp = {order.id: order.marketplace for order in orders}
         
-        # İptal/İade ciro - Trendyol için NET (komisyon düşülmüş)
+        # İptal/İade ciro - Komisyon düşülmeden
         iptal_iade_ciro = 0.0
         for item in iptal_iade_items:
-            marketplace = order_to_mp.get(item.order_id, '')
-            if marketplace == 'Trendyol':
-                iptal_iade_ciro += (item.item_amount or 0.0) - (item.commission_amount or 0.0)
-            else:
-                iptal_iade_ciro += (item.item_amount or 0.0)
+            # TÜM marketplace'ler için komisyon düşülmez
+            iptal_iade_ciro += (item.item_amount or 0.0)
         
         iptal_iade_adet = sum(item.quantity for item in iptal_iade_items)
         iptal_iade_siparis_sayisi = len(iptal_iade_order_ids)
@@ -150,23 +147,11 @@ class AnalyticsService:
         iptal_items = [item for item in iptal_iade_items if item.item_status == "accepted"]
         iade_items = [item for item in iptal_iade_items if item.item_status == "rejected"]
         
-        # İptal/İade alt kırılımlarında da Trendyol kontrolü
-        iptal_ciro = 0.0
-        for item in iptal_items:
-            marketplace = order_to_mp.get(item.order_id, '')
-            if marketplace == 'Trendyol':
-                iptal_ciro += (item.item_amount or 0.0) - (item.commission_amount or 0.0)
-            else:
-                iptal_ciro += (item.item_amount or 0.0)
+        # İptal/İade alt kırılımları - Komisyon düşülmeden
+        iptal_ciro = sum(item.item_amount or 0.0 for item in iptal_items)
         iptal_adet = sum(item.quantity for item in iptal_items)
         
-        iade_ciro = 0.0
-        for item in iade_items:
-            marketplace = order_to_mp.get(item.order_id, '')
-            if marketplace == 'Trendyol':
-                iade_ciro += (item.item_amount or 0.0) - (item.commission_amount or 0.0)
-            else:
-                iade_ciro += (item.item_amount or 0.0)
+        iade_ciro = sum(item.item_amount or 0.0 for item in iade_items)
         iade_adet = sum(item.quantity for item in iade_items)
         
         # NET Metrikler (iptal/iade HARİÇ)
@@ -174,19 +159,16 @@ class AnalyticsService:
         
         net_satilan_adet = sum(item.quantity for item in net_items)
         
-        # ÜRÜN CİROSU - 🆕 Trendyol için komisyon düşülüyor!
-        # Trendyol: item_amount BRÜT (komisyon dahil), komisyon_amount ayrı
-        # Diğerleri: item_amount NET (olduğu gibi)
+        # ÜRÜN CİROSU - Komisyon düşülmeden (Trendyol'dan alınan tutar)
+        # ⚠️ ÖNEMLİ: Komisyon sadece KAR hesabında maliyet olarak kullanılır!
+        # Trendyol: item_amount = Trendyol'dan alınan tutar (komisyon sonrası)
+        # Diğerleri: item_amount = Marketplace'den alınan tutar
         net_ciro_urunler = 0.0
         order_to_mp = {order.id: order.marketplace for order in orders}
         for item in net_items:
-            marketplace = order_to_mp.get(item.order_id, '')
-            if marketplace == 'Trendyol':
-                # Trendyol için NET = BRÜT - KOMİSYON
-                net_ciro_urunler += (item.item_amount or 0.0) - (item.commission_amount or 0.0)
-            else:
-                # Diğerleri için item_amount zaten NET
-                net_ciro_urunler += (item.item_amount or 0.0)
+            # TÜM marketplace'ler için item_amount olduğu gibi kullanılır
+            # Komisyon ayrıca "Marketplace Komisyon" maliyet kalemi olarak gösterilir
+            net_ciro_urunler += (item.item_amount or 0.0)
         
         # KARGO ÜCRETİ (order level) - Net siparişlerden
         net_orders = [order for order in orders if order.id not in iptal_iade_order_ids]
