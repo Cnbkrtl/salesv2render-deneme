@@ -69,6 +69,7 @@ class TrendyolDataFetcherService:
             # Mevcut Trendyol verilerini temizle (istenirse)
             if clear_existing:
                 self._clear_trendyol_data(db, start_dt, end_dt)
+                db.commit()  # 🆕 Clear sonrası COMMIT - böylece existing check doğru çalışır
             
             # Product cache yükle
             self._load_product_cache(db)
@@ -88,15 +89,27 @@ class TrendyolDataFetcherService:
             # Biz orderDate (sipariş oluşturma tarihi) ile filtrelemek istiyoruz
             
             # 🎯 CRITICAL FIX: Trendyol API orderDate GMT+3 timezone'unda
-            # Timestamp karşılaştırması yapmak için GMT+3 offset ekliyoruz
-            from datetime import datetime as dt_calc
+            # start_dt zaten yerel saat (naive datetime), timestamp olarak UTC'ye çevir
+            # Trendyol orderDate ise GMT+3 timestamp (Turkey timezone)
+            # 
+            # Örnek: 2025-10-18 00:00:00 (Turkey) = 1760882400000 ms (GMT+3 timestamp)
+            #        2025-10-18 23:59:59 (Turkey) = 1760968799999 ms (GMT+3 timestamp)
             
-            # Start/end datetime'i timestamp'e çevir ve GMT+3 offset ekle
-            gmt3_offset_ms = 3 * 60 * 60 * 1000  # 10800000 ms (3 saat)
-            start_ts = int(start_dt.timestamp() * 1000) + gmt3_offset_ms
-            end_ts = int(end_dt.timestamp() * 1000) + gmt3_offset_ms + (24 * 60 * 60 * 1000 - 1)  # End gün sonu
+            from datetime import datetime as dt_calc, timezone, timedelta
             
-            logger.info(f"🔍 Filtering by orderDate timestamp: {start_ts} to {end_ts}")
+            # Turkey timezone (GMT+3)
+            turkey_tz = timezone(timedelta(hours=3))
+            
+            # Naive datetime'leri Turkey timezone'a çevir
+            start_dt_turkey = start_dt.replace(tzinfo=turkey_tz)
+            end_dt_turkey = end_dt.replace(tzinfo=turkey_tz).replace(hour=23, minute=59, second=59, microsecond=999999)
+            
+            # Timestamp'e çevir (milliseconds)
+            start_ts = int(start_dt_turkey.timestamp() * 1000)
+            end_ts = int(end_dt_turkey.timestamp() * 1000)
+            
+            logger.info(f"🔍 Filtering by orderDate timestamp (GMT+3): {start_ts} to {end_ts}")
+            logger.info(f"   Date range: {start_dt_turkey.isoformat()} to {end_dt_turkey.isoformat()}")
             
             filtered_packages = []
             for package in packages:
@@ -110,6 +123,34 @@ class TrendyolDataFetcherService:
                     filtered_packages.append(package)
             
             logger.info(f"✅ Filtered to {len(filtered_packages)} packages by orderDate (was {len(packages)})")
+            
+            # 🎯 CRITICAL FIX: İptal/İade paketlerini AYIKLA
+            # Analytics'te revenue hesaplarken iptal/iade dahil olmamalı
+            # İptal/iade status'leri: Cancelled, UnDelivered, Returned, UnSupplied
+            
+            cancelled_statuses = {'Cancelled', 'UnDelivered', 'Returned', 'UnSupplied'}
+            
+            active_packages = []
+            cancelled_packages = []
+            
+            for package in filtered_packages:
+                status = package.get('status', 'Unknown')
+                if status in cancelled_statuses:
+                    cancelled_packages.append(package)
+                else:
+                    active_packages.append(package)
+            
+            logger.info(f"📊 Package breakdown:")
+            logger.info(f"   ✅ Active: {len(active_packages)}")
+            logger.info(f"   ❌ Cancelled/Returned: {len(cancelled_packages)}")
+            
+            # 🔥 ÖNEMLİ KARAR: İptal/iade paketlerini database'e ekle ama flag'le
+            # Böylece analytics'te filtreleyebiliriz (is_cancelled=True itemler hesaba katılmaz)
+            # filtered_packages = active_packages  # Sadece aktifler
+            # YA DA
+            filtered_packages = active_packages + cancelled_packages  # Hepsi (flag'lı)
+            
+            logger.info(f"💾 Storing {len(filtered_packages)} packages (cancelled items will be flagged)")
             
             # DEBUG: İlk paketi incele
             if filtered_packages:
@@ -179,13 +220,18 @@ class TrendyolDataFetcherService:
     
     def _clear_trendyol_data(self, db: Session, start_dt: datetime, end_dt: datetime):
         """Mevcut Trendyol verilerini temizle"""
+        from datetime import timedelta
+        
+        # end_dt gün sonu dahil (23:59:59) - bir sonraki günün başına kadar sil
+        end_dt_inclusive = end_dt + timedelta(days=1)
+        
         logger.info(f"🗑️  Clearing existing Trendyol data ({start_dt.date()} to {end_dt.date()})")
         
         # Trendyol siparişlerini bul
         trendyol_orders = db.query(SalesOrder).filter(
             SalesOrder.marketplace.like('%Trendyol%'),
             SalesOrder.order_date >= start_dt,
-            SalesOrder.order_date <= end_dt
+            SalesOrder.order_date < end_dt_inclusive  # < yerine <= değil, + 1 gün
         ).all()
         
         # İlgili item'ları sil
@@ -382,7 +428,10 @@ class TrendyolDataFetcherService:
         
         for package in packages:
             package_id = package.get('id')
+            package_status = package.get('status')  # 🆕 Package status'ü al
             lines = package.get('lines', [])
+            
+            logger.info(f"   📦 Package {package_id}: {len(lines)} lines, status={package_status}")
             
             for line in lines:
                 try:
@@ -395,10 +444,14 @@ class TrendyolDataFetcherService:
                         logger.debug(f"⏭️  Item already exists: {unique_key}")
                         continue
                     
-                    item = self._create_trendyol_order_item(db, order, line, package_id)
+                    logger.info(f"      ➕ Creating item: {line.get('merchantSku', 'N/A')}")
+                    item = self._create_trendyol_order_item(db, order, line, package_id, package_status)  # 🆕 package_status gönder
                     if item:
                         db.add(item)
                         items_count += 1
+                        logger.info(f"         ✅ Item added ({items_count})")
+                    else:
+                        logger.warning(f"         ⚠️ Item creation returned None!")
                 except Exception as e:
                     # Check for unique constraint violation
                     error_msg = str(e).lower()
@@ -417,7 +470,8 @@ class TrendyolDataFetcherService:
         db: Session, 
         order: SalesOrder, 
         line: Dict[str, Any],
-        package_id: int
+        package_id: int,
+        package_status: str = None  # 🆕 Package seviyesindeki status
     ) -> Optional[SalesOrderItem]:
         """Trendyol order line'ı SalesOrderItem'a çevir"""
         
@@ -437,9 +491,24 @@ class TrendyolDataFetcherService:
         # Unique key - PACKAGE_ID kullan (birden fazla paket olabilir)
         unique_key = f"trendyol_{package_id}_{order_line_id}"
         
-        # İtem statüsü
-        item_status_name = line.get('orderLineItemStatusName', '')
-        is_return = 'return' in item_status_name.lower() or 'iade' in item_status_name.lower()
+        # 🎯 CRITICAL FIX: İptal/İade kontrolü - Hem line hem package seviyesinde
+        item_status_name = line.get('orderLineItemStatusName', '').lower()
+        
+        # Line seviyesinde iptal/iade kontrolleri
+        line_is_cancelled = any(keyword in item_status_name for keyword in 
+                               ['cancelled', 'iptal', 'return', 'iade', 'undelivered', 'unsupplied'])
+        
+        # Package seviyesinde iptal/iade kontrolleri (Trendyol API: Cancelled, Returned, UnDelivered, UnSupplied)
+        package_is_cancelled = False
+        if package_status:
+            package_is_cancelled = package_status in ['Cancelled', 'Returned', 'UnDelivered', 'UnSupplied']
+        
+        # Sipariş seviyesinde iptal kontrolü (order_status = 6 = IPTAL_IADE)
+        order_is_cancelled = (order.order_status == OrderStatus.IPTAL_IADE.value)
+        
+        # Final karar: Herhangi biri iptal/iade ise item iptal/iade
+        is_return = line_is_cancelled or package_is_cancelled or order_is_cancelled
+        is_cancelled = is_return  # Aynı flag (analytics'te ikisi de filtrelenir)
         
         # Fiyat bilgileri (None kontrolü!)
         unit_price = line.get('price') or 0.0
@@ -478,7 +547,7 @@ class TrendyolDataFetcherService:
             commission_rate=commission_rate,
             commission_amount=commission_amount,  # ✅ Backend'de hesaplanan komisyon
             is_return=is_return,
-            is_cancelled=(order.order_status == OrderStatus.IPTAL_IADE.value)
+            is_cancelled=is_cancelled  # 🆕 Hesaplanan is_cancelled flag'i kullan
         )
         
         return item
